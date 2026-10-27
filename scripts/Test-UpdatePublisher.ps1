@@ -76,6 +76,30 @@ foreach ($channel in @('stable', 'beta')) {
     $manifest = Join-Path $scratch ($channel + '.json')
     Invoke-Publisher @('manifest', $restored, $package, '99.0.0', $channel, $manifest, 'https://example.com/fixture.zip')
 }
+# Simulate another publisher directory that has only the portable key and public trust file.
+$portableDir = Join-Path $scratch 'portable-machine'
+[IO.Directory]::CreateDirectory($portableDir) | Out-Null
+$portableKey = Join-Path $portableDir 'signing.p8'
+$portablePublic = Join-Path $portableDir 'public.json'
+Copy-Item -LiteralPath $backup -Destination $portableKey
+Copy-Item -LiteralPath $public -Destination $portablePublic
+Remove-Item -LiteralPath $key,$restored
+Invoke-Publisher @('check-portable-key', $portableKey, $portablePublic, '--password-stdin') $passphrase
+Invoke-Publisher @('check-portable-key', $portableKey, $otherPublic, '--password-stdin') $passphrase $false
+Invoke-Publisher @('check-portable-key', $portableKey, $portablePublic, '--password-stdin') ($passphrase + 'wrong') $false
+$rejectedManifest = Join-Path $portableDir 'rejected.json'
+Invoke-Publisher @('manifest-portable', $portableKey, $portablePublic, $package, '99.0.0', 'stable', $rejectedManifest, 'https://example.com/fixture.zip', '--password-stdin') ($passphrase + 'wrong') $false
+Invoke-Publisher @('manifest-portable', $portableKey, $otherPublic, $package, '99.0.0', 'stable', $rejectedManifest, 'https://example.com/fixture.zip', '--password-stdin') $passphrase $false
+Invoke-Publisher @('manifest-portable', $portableKey, $portablePublic, $package, '99.0.0', 'stable', $rejectedManifest, 'https://example.com/fixture.zip') $passphrase $false
+if (Test-Path -LiteralPath $rejectedManifest) { throw 'Rejected portable signing created a manifest.' }
+$publicDigest = (Get-FileHash -LiteralPath $portablePublic).Hash
+Invoke-Publisher @('manifest-portable', $portableKey, $portablePublic, $package, '99.0.0', 'stable', $portablePublic, 'https://example.com/fixture.zip', '--password-stdin') $passphrase $false
+if ((Get-FileHash -LiteralPath $portablePublic).Hash -ne $publicDigest) { throw 'Portable signing overwrote public trust.' }
+foreach ($channel in @('stable', 'beta')) {
+    Invoke-Publisher @('manifest-portable', $portableKey, $portablePublic, $package, '99.0.0', $channel,
+        (Join-Path $portableDir ($channel + '.json')), 'https://example.com/fixture.zip', 'https://mirror.example.com/fixture.zip', '--password-stdin') $passphrase
+}
+if (Get-ChildItem -LiteralPath $portableDir -Filter '*.dpapi') { throw 'Portable signing created an unnecessary machine-bound key.' }
 Add-Type -TypeDefinition @'
 using System;
 using System.IO;
@@ -100,5 +124,7 @@ public static class SigningMigrationVerifier
 foreach ($channel in @('stable', 'beta')) {
     [SigningMigrationVerifier]::Verify($public, (Join-Path $scratch ($channel + '.json')))
     $script:checks++
+    [SigningMigrationVerifier]::Verify($public, (Join-Path $portableDir ($channel + '.json')))
+    $script:checks++
 }
-Write-Output "PASS: $script:checks signing migration checks, including original-public-key verification of restored-key manifests."
+Write-Output "PASS: $script:checks signing checks, including restored-key and portable-key manifests verified against the original public key."

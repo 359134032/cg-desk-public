@@ -28,6 +28,12 @@ try
         Console.WriteLine($"Signing key is usable and matches the client's public key; key ID: {SigningKeys.Id(signer)}.");
         return 0;
     }
+    if ((args.Length == 3 || args.Length == 4 && args[3] == "--password-stdin") && args[0] == "check-portable-key")
+    {
+        using var signer = SigningKeys.OpenPortable(args[1], args[2], args.Length == 4);
+        Console.WriteLine($"Portable key is usable and matches the client's public key; key ID: {SigningKeys.Id(signer)}. No machine-bound key file was created.");
+        return 0;
+    }
     if ((args.Length == 4 || args.Length == 5 && args[4] == "--password-stdin") && args[0] is "export-key" or "import-key")
     {
         SigningKeys.EnsureNew(args[2]);
@@ -48,25 +54,25 @@ try
         }
         else
         {
-            var encrypted = File.ReadAllBytes(args[1]);
-            var password = SigningKeys.ReadPassword(fromStdin, confirm: false);
-            using var signer = ECDsa.Create();
-            try
-            {
-                signer.ImportEncryptedPkcs8PrivateKey(password, encrypted, out var read);
-                if (read != encrypted.Length || signer.ExportParameters(false).Curve.Oid.Value != ECCurve.NamedCurves.nistP256.Oid.Value)
-                    throw new InvalidDataException("Backup must contain one ECDSA P-256 key.");
-                SigningKeys.RequireTrusted(signer, args[3]);
-                SigningKeys.Save(signer, args[2]);
-            }
-            finally { Array.Clear(password); }
+            using var signer = SigningKeys.OpenPortable(args[1], args[3], fromStdin);
+            SigningKeys.Save(signer, args[2]);
             Console.WriteLine($"Imported signing key protected for this Windows user; key ID: {SigningKeys.Id(signer)}. Client public keys were preserved.");
         }
         return 0;
     }
+    string? portablePublicPath = null;
+    var passwordFromStdin = false;
+    if (args.Length >= 8 && args[0] == "manifest-portable")
+    {
+        portablePublicPath = args[2];
+        passwordFromStdin = args[^1] == "--password-stdin";
+        if (passwordFromStdin) args = args[..^1];
+        args = ["manifest", args[1], .. args.Skip(3)];
+    }
     if (args.Length >= 7 && args[0] == "manifest")
     {
-        using var signer = SigningKeys.Open(args[1]);
+        using var signer = portablePublicPath == null ? SigningKeys.Open(args[1])
+            : SigningKeys.OpenPortable(args[1], portablePublicPath, passwordFromStdin);
         var package = new FileInfo(args[2]);
         var version = ReleaseVersion.Parse(args[3]);
         var channel = args[4];
@@ -87,13 +93,14 @@ try
         var signature = signer.SignData(payload, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
         var outputPath = Path.GetFullPath(args[5]);
         if (string.Equals(outputPath, Path.GetFullPath(args[1]), StringComparison.OrdinalIgnoreCase)
+            || portablePublicPath != null && string.Equals(outputPath, Path.GetFullPath(portablePublicPath), StringComparison.OrdinalIgnoreCase)
             || string.Equals(outputPath, package.FullName, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Manifest output cannot overwrite the signing key or package.");
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         File.WriteAllText(outputPath, JsonSerializer.Serialize(new UpdateEnvelope(SigningKeys.Id(signer), Convert.ToBase64String(payload), Convert.ToBase64String(signature)), json));
         Console.WriteLine($"Created signed {channel} manifest for {args[3]}; SHA256 {digest}; {urls.Length} mirrors.");
         return 0;
     }
-    Console.Error.WriteLine("Usage:\n  keygen <protected-key-file> <public-keys-json>\n  check-key <protected-key-file> <public-keys-json>\n  export-key <protected-key-file> <encrypted-backup.p8> <public-keys-json> [--password-stdin]\n  import-key <encrypted-backup.p8> <new-protected-key-file> <public-keys-json> [--password-stdin]\n  manifest <protected-key-file> <zip> <version> <stable|beta> <output-json> <https-url> [backup-url...]\nPasswords are prompted without echo; never pass a password as a command-line argument.");
+    Console.Error.WriteLine("Usage:\n  keygen <protected-key-file> <public-keys-json>\n  check-key <protected-key-file> <public-keys-json>\n  check-portable-key <encrypted-key.p8> <public-keys-json> [--password-stdin]\n  export-key <protected-key-file> <encrypted-backup.p8> <public-keys-json> [--password-stdin]\n  import-key <encrypted-backup.p8> <new-protected-key-file> <public-keys-json> [--password-stdin]\n  manifest <protected-key-file> <zip> <version> <stable|beta> <output-json> <https-url> [backup-url...]\n  manifest-portable <encrypted-key.p8> <public-keys-json> <zip> <version> <stable|beta> <output-json> <https-url> [backup-url...] [--password-stdin]\nPasswords are prompted without echo; never pass a password as a command-line argument.");
     return 1;
 }
 catch (Exception error)

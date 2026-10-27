@@ -26,9 +26,32 @@ GitHub 匿名 REST API 按出口 IP 共享每小时 60 次额度。0.1.7 可能�
 
 ## 维护者签名工具
 
-客户端仅包含公钥 `src/CgDesk/Assets/update-public-keys.json`。维护者私钥由 Windows DPAPI 保护，保存在本地忽略目录 `artifacts/signing/cgdesk-update-key.dpapi`，不进入源码或发布包。公开克隆不包含此文件，也不能代表官方签名发布。
+客户端仅包含公钥 `src/CgDesk/Assets/update-public-keys.json`。发布身份由这把公钥及对应私钥决定，不绑定某台电脑。原来的 `artifacts/signing/cgdesk-update-key.dpapi` 是绑定本机用户的私钥保护副本；密码加密的 `.p8` 则可以直接在其他 Windows 电脑签名，不需要原电脑或导入 DPAPI。私钥和加密文件均不进入源码或发布包。
 
-单独复制 DPAPI 文件到其他机器不足以解密。跨机器发布应先在原电脑、原 Windows 用户下导出密码加密备份，再在目标电脑导入；导入沿用原密钥，不修改客户端公钥。备份使用 .NET 的加密 PKCS#8 格式（AES-256-CBC、PBKDF2-SHA256、600,000 次迭代），不依赖原电脑的 DPAPI 环境。参见 [Microsoft API 说明](https://learn.microsoft.com/en-us/dotnet/api/system.security.cryptography.asymmetricalgorithm.exportencryptedpkcs8privatekey?view=net-10.0)。
+单独复制 DPAPI 文件到其他机器不足以解密。应先在原电脑、原 Windows 用户下导出密码加密备份，之后即可在其他电脑直接签名；如需本机保护副本，也可导入到目标电脑。两种方式均沿用原密钥，不修改客户端公钥。备份使用 .NET 的加密 PKCS#8 格式（AES-256-CBC、PBKDF2-SHA256、600,000 次迭代），不依赖原电脑的 DPAPI 环境。参见 [Microsoft API 说明](https://learn.microsoft.com/en-us/dotnet/api/system.security.cryptography.asymmetricalgorithm.exportencryptedpkcs8privatekey?view=net-10.0)。
+
+### 推荐：直接使用可迁移加密密钥发布
+
+换电脑时，拉取最新源码，安装 .NET 10 SDK，将已有 `.p8` 文件放到自己控制的位置，并从独立保存的恢复密码中取得密码即可。不需要重新生成密钥，不需要原来的 Windows 用户，也不需要先生成本机 `.dpapi` 文件。现有备份文件可直接使用，无需重新导出。
+
+先验证密码和签名身份，按提示输入密码（不回显）：
+
+```powershell
+dotnet run --project tools/CgDesk.UpdatePublisher -- check-portable-key artifacts/signing/cgdesk-update-key.backup.p8 src/CgDesk/Assets/update-public-keys.json
+```
+
+为对应版本的实际 ZIP 生成清单。下面以 0.1.9 为例，发布其他版本时替换版本号、包路径和下载 URL：
+
+```powershell
+dotnet run --project tools/CgDesk.UpdatePublisher -- manifest-portable artifacts/signing/cgdesk-update-key.backup.p8 src/CgDesk/Assets/update-public-keys.json release/CgDesk-0.1.9-win-x64.zip 0.1.9 stable release/cgdesk-update-stable.json https://github.com/359134032/cg-desk-public/releases/download/v0.1.9/CgDesk-0.1.9-win-x64.zip
+dotnet run --project tools/CgDesk.UpdatePublisher -- manifest-portable artifacts/signing/cgdesk-update-key.backup.p8 src/CgDesk/Assets/update-public-keys.json release/CgDesk-0.1.9-win-x64.zip 0.1.9 beta release/cgdesk-update-beta.json https://github.com/359134032/cg-desk-public/releases/download/v0.1.9/CgDesk-0.1.9-win-x64.zip
+```
+
+两条签名命令均会提示输入密码。解密仅发生在进程内存中，不生成明文私钥或本机 DPAPI 副本。每次签名前，工具都会确认密钥匹配客户端现有可信公钥；密码不对或拿错密钥时拒绝生成清单。之后仍须离线验签并将两份清单和对应 ZIP 上传到同一个 Release。
+
+客户端继续使用内置公钥验证清单签名，再验证下载 ZIP 的大小和 SHA256，用户无需密码。换发布电脑不会改变客户端的信任公钥。`check-portable-key` 和 `manifest-portable` 均支持将 `--password-stdin` 放在最后，由安全管道提供密码，不接受明文密码命令参数。
+
+加密密钥文件与恢复密码应分别备份；同时拥有两者即可代表发布者签名。原来的 DPAPI 发布命令仍可继续使用，下面的导入流程仅用于需要保留本机保护副本的情况。
 
 ### 已有密钥：备份和迁移
 

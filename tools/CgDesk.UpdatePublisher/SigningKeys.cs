@@ -30,6 +30,23 @@ internal static class SigningKeys
             throw new InvalidDataException("This key does not match the client's trusted public keys. Do not generate a replacement for an existing release.");
     }
 
+    public static ECDsa OpenPortable(string path, string publicPath, bool fromStdin)
+    {
+        var encrypted = File.ReadAllBytes(path);
+        var password = ReadPassword(fromStdin, confirm: false);
+        var signer = ECDsa.Create();
+        try
+        {
+            signer.ImportEncryptedPkcs8PrivateKey(password, encrypted, out var read);
+            if (read != encrypted.Length || signer.ExportParameters(false).Curve.Oid.Value != ECCurve.NamedCurves.nistP256.Oid.Value)
+                throw new InvalidDataException("Encrypted file must contain one ECDSA P-256 key.");
+            RequireTrusted(signer, publicPath);
+            return signer;
+        }
+        catch { signer.Dispose(); throw; }
+        finally { Array.Clear(password); }
+    }
+
     public static void Save(ECDsa signer, string path)
     {
         var bytes = signer.ExportPkcs8PrivateKey();
