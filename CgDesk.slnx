@@ -4,6 +4,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CgDesk.Regression/CgDesk.Regression.csproj" />
+    <Project Path="tests/DpiMouseChild/DpiMouseChild.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/CgDesk.UpdatePublisher/CgDesk.UpdatePublisher.csproj" />

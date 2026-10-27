@@ -340,6 +340,18 @@ internal static class GameEmbedder
         }
 
         _ = SetThreadDpiHostingBehavior(1);
+        var fitWidth = clientWidth;
+        var fitHeight = clientHeight;
+        if (forCapture)
+        {
+            // A DPI-unaware game keeps 800×600 in its own coordinates. On a 150%
+            // desktop that window is 1200×900 physical pixels. Size it in physical
+            // pixels or the capture check never matches.
+            var scale = PhysicalScale(game);
+            fitWidth = Math.Max(8, (int)Math.Round(clientWidth * scale));
+            fitHeight = Math.Max(8, (int)Math.Round(clientHeight * scale));
+        }
+
         if (!Saved.ContainsKey(game))
         {
             _ = NativeMethods.GetWindowRect(game, out var bounds);
@@ -352,9 +364,8 @@ internal static class GameEmbedder
             && IsReady(game)
             && Math.Abs(current.X - x) < 4
             && Math.Abs(current.Y - y) < 4
-            && current.ClientWidth == clientWidth
-            && current.ClientHeight == clientHeight
-            && current.ForCapture == forCapture)
+            && current.ForCapture == forCapture
+            && (forCapture || (current.ClientWidth == clientWidth && current.ClientHeight == clientHeight)))
         {
             return true;
         }
@@ -386,19 +397,19 @@ internal static class GameEmbedder
             _ = NativeMethods.ShowWindow(game, 8);
         }
 
-        var outerWidth = clientWidth;
-        var outerHeight = clientHeight;
+        var outerWidth = fitWidth;
+        var outerHeight = fitHeight;
         var flags = NativeMethods.SwpNoActivate | NativeMethods.SwpShowWindow | FrameChanged;
         _ = NativeMethods.SetWindowPos(game, new IntPtr(1), x, y, outerWidth, outerHeight, flags);
         if (NativeMethods.GetWindowRect(game, out var window) && NativeMethods.GetClientRect(game, out var client))
         {
             var extraWidth = (window.Right - window.Left) - (client.Right - client.Left);
             var extraHeight = (window.Bottom - window.Top) - (client.Bottom - client.Top);
-            var nextWidth = clientWidth + Math.Max(0, extraWidth);
-            var nextHeight = clientHeight + Math.Max(0, extraHeight);
+            var nextWidth = fitWidth + Math.Max(0, extraWidth);
+            var nextHeight = fitHeight + Math.Max(0, extraHeight);
             if (Math.Abs(nextWidth - outerWidth) > 1 || Math.Abs(nextHeight - outerHeight) > 1
-                || Math.Abs((client.Right - client.Left) - clientWidth) > 2
-                || Math.Abs((client.Bottom - client.Top) - clientHeight) > 2)
+                || Math.Abs((client.Right - client.Left) - fitWidth) > 2
+                || Math.Abs((client.Bottom - client.Top) - fitHeight) > 2)
             {
                 outerWidth = nextWidth;
                 outerHeight = nextHeight;
@@ -412,8 +423,27 @@ internal static class GameEmbedder
             return false;
         }
 
-        Staged[game] = new StagePlace(x, y, clientWidth, clientHeight, outerWidth, outerHeight, forCapture);
+        Staged[game] = new StagePlace(x, y, fitWidth, fitHeight, outerWidth, outerHeight, forCapture);
         return true;
+    }
+
+    private static double PhysicalScale(IntPtr game)
+    {
+        var context = GetWindowDpiAwarenessContext(game);
+        var unaware = AreDpiAwarenessContextsEqual(context, new IntPtr(-1))
+            || AreDpiAwarenessContextsEqual(context, new IntPtr(-5));
+        if (!unaware)
+        {
+            return 1;
+        }
+
+        var monitor = MonitorFromWindow(game, 2);
+        if (GetDpiForMonitor(monitor, 0, out var dpiX, out _) != 0 || dpiX < 96)
+        {
+            return 1;
+        }
+
+        return dpiX / 96.0;
     }
 
     public static void MoveStaged(IntPtr game, int x, int y)
@@ -775,6 +805,18 @@ internal static class GameEmbedder
 
     [DllImport("user32.dll")]
     private static extern int SetThreadDpiHostingBehavior(int value);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetWindowDpiAwarenessContext(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool AreDpiAwarenessContextsEqual(IntPtr a, IntPtr b);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+
+    [DllImport("shcore.dll")]
+    private static extern int GetDpiForMonitor(IntPtr monitor, int dpiType, out uint dpiX, out uint dpiY);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr CreateWindowExW(int exStyle, string className, string windowName, int style, int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr param);

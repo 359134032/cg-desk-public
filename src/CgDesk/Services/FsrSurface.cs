@@ -762,15 +762,16 @@ internal static class FsrSurface
             }
 
             var posted = lParam;
+            // Windows scales a posted point from this per-monitor process down into a
+            // DPI-unaware game. Keep the point in physical pixels, matching this view
+            // and the game window's physical client. Dividing by the scale first lands short.
             if (msg is not (0x020A or 0x020E) && ClientSize(hwnd) is var view && ClientSize(_game) is var game
                 && view.Width > 0 && view.Height > 0 && game.Width > 0 && game.Height > 0)
             {
                 var packed = unchecked((int)(lParam.ToInt64() & 0xFFFFFFFF));
                 var x = (short)(packed & 0xFFFF);
                 var y = (short)((packed >> 16) & 0xFFFF);
-                var nx = (int)Math.Clamp(x * (double)game.Width / view.Width, 0, game.Width - 1);
-                var ny = (int)Math.Clamp(y * (double)game.Height / view.Height, 0, game.Height - 1);
-                posted = new IntPtr((ny << 16) | (nx & 0xFFFF));
+                posted = MapPointer(x, y, view.Width, view.Height, game.Width, game.Height);
             }
 
             _ = PostMessage(_game, msg, wParam, posted);
@@ -778,6 +779,13 @@ internal static class FsrSurface
         }
 
         return DefWindowProc(hwnd, msg, wParam, lParam);
+    }
+
+    internal static IntPtr MapPointer(int x, int y, int viewWidth, int viewHeight, int gameWidth, int gameHeight)
+    {
+        var nx = (int)Math.Clamp(x * (double)gameWidth / viewWidth, 0, gameWidth - 1);
+        var ny = (int)Math.Clamp(y * (double)gameHeight / viewHeight, 0, gameHeight - 1);
+        return new IntPtr((ny << 16) | (nx & 0xFFFF));
     }
 
     static (int Width, int Height) ClientSize(IntPtr hwnd)

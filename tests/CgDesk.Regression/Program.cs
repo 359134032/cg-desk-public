@@ -43,6 +43,7 @@ internal static partial class Program
             if (args.Contains("--stress-layout")) { TestManyWindows(app, args.Contains("--enforce-clipping")); return 0; }
             if (args.Contains("--probe-theme")) { TestTheme(app); return 0; }
             if (args.Contains("--probe-fsr")) { TestSuperResolution(app); return 0; }
+            if (args.Contains("--probe-dpi-mouse")) { TestScaledMouse(); Console.WriteLine($"PASS: {_checks} dpi mouse checks."); return 0; }
             if (args.Contains("--probe-cursor")) { TestCursorAfterGameExit(app, true); TestCursorAfterGameExit(app, false); return 0; }
             if (args.Contains("--probe-update")) { TestUpdates(app); Console.WriteLine($"PASS: {_checks} update checks."); return 0; }
             TestUpdates(app);
@@ -73,6 +74,7 @@ internal static partial class Program
                 TestCursorAfterGameExit(app, false);
                 TestCursorAfterGameExit(app, true);
                 TestSuperResolution(app);
+                TestScaledMouse();
             }
             Console.WriteLine($"PASS: {_checks} checks.");
             return 0;
@@ -675,6 +677,51 @@ internal static partial class Program
         _checks++;
         Console.WriteLine("PASS: " + description);
     }
+    private static void TestScaledMouse()
+    {
+        var root = SourceRoot();
+        var project = Path.Combine(root, "tests", "DpiMouseChild", "DpiMouseChild.csproj");
+        var build = Process.Start(new ProcessStartInfo("dotnet", $"build \"{project}\" -c Release --nologo")
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        })!;
+        build.WaitForExit();
+        Require(build.ExitCode == 0, "The DPI-unaware mouse child builds. " + build.StandardError.ReadToEnd());
+        var exe = Path.Combine(root, "tests", "DpiMouseChild", "bin", "Release", "net10.0", "DpiMouseChild.exe");
+        var child = Process.Start(new ProcessStartInfo(exe) { UseShellExecute = false, RedirectStandardOutput = true })!;
+        try
+        {
+            var header = child.StandardOutput.ReadLine() ?? "";
+            var hwnd = new IntPtr(long.Parse(header.Split(' ')[0].Split('=')[1], CultureInfo.InvariantCulture));
+            var logical = header.Split(' ')[1].Split('=')[1].Split('x');
+            var logicalW = int.Parse(logical[0], CultureInfo.InvariantCulture);
+            var logicalH = int.Parse(logical[1], CultureInfo.InvariantCulture);
+            _ = NativeMethods.GetClientRect(hwnd, out var physicalRect);
+            var physicalW = physicalRect.Right - physicalRect.Left;
+            var physicalH = physicalRect.Bottom - physicalRect.Top;
+            var posted = FsrSurface.MapPointer(physicalW / 2, physicalH / 2, physicalW, physicalH, physicalW, physicalH);
+            Require(PostMessage(hwnd, 0x201, new IntPtr(1), posted), "Scaled click is delivered to the unaware window.");
+            var got = (child.StandardOutput.ReadLine() ?? "").Split('=')[1].Split(',');
+            var gotX = int.Parse(got[0], CultureInfo.InvariantCulture);
+            var gotY = int.Parse(got[1], CultureInfo.InvariantCulture);
+            Console.WriteLine($"Scaled mouse: physical {physicalW}x{physicalH}, logical {logicalW}x{logicalH}, delivered {gotX},{gotY}");
+            Require(Math.Abs(gotX - logicalW / 2) <= 2 && Math.Abs(gotY - logicalH / 2) <= 2, "A centered click lands on the center of a DPI-unaware game.");
+        }
+        finally
+        {
+            if (!child.HasExited) child.Kill();
+        }
+    }
+
+    private static string SourceRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "CgDesk.slnx"))) dir = dir.Parent;
+        return dir?.FullName ?? throw new InvalidOperationException("Repository root was not found.");
+    }
+
     [DllImport("user32.dll")]
     private static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wparam, IntPtr lparam);
     [DllImport("user32.dll")]

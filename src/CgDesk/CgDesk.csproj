@@ -14,7 +14,7 @@
     <ApplicationTitle>魔力窗口台</ApplicationTitle>
     <AssemblyName>CgDesk</AssemblyName>
     <RootNamespace>CgDesk</RootNamespace>
-    <Version>0.1.8</Version>
+    <Version>0.1.9</Version>
     <Deterministic>true</Deterministic>
     <PathMap>$(MSBuildProjectDirectory)=/_/CgDesk</PathMap>
     <EnableSourceLink>false</EnableSourceLink>

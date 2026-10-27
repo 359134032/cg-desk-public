@@ -98,7 +98,7 @@ dotnet run --project tests/CgDesk.Regression/CgDesk.Regression.csproj -c Release
 ```powershell
 dotnet run --project tests/CgDesk.Regression/CgDesk.Regression.csproj -c Release -- --stress-layout --enforce-clipping
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-SourcePrivacy.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-SourcePrivacy.ps1 -PackagePath release/CgDesk-0.1.8-win-x64.zip
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-SourcePrivacy.ps1 -PackagePath release/CgDesk-0.1.9-win-x64.zip
 ```
 
 详见[首发验收说明](docs/reports/release-0.1.7.md)。当前分发目标为 Windows x64，不能仅凭编译目标认定所有 Windows 10 版本受支持。
