@@ -1,0 +1,45 @@
+<Window x:Class="CgDesk.HotkeyEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="编辑热键"
+        Icon="/Assets/AppIcon.ico"
+        Width="560"
+        SizeToContent="Height"
+        MaxHeight="720"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{DynamicResource InkBrush}"
+        Foreground="{DynamicResource TextBrush}"
+        FontFamily="Microsoft YaHei UI"
+        FontSize="14"
+        PreviewKeyDown="Window_PreviewKeyDown">
+    <DockPanel Margin="16">
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,12,0,0" LastChildFill="False">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button x:Name="CancelButton" Content="取消" IsCancel="True" Padding="14,6" Margin="0,0,8,0"/>
+                <Button x:Name="SaveButton" Content="保存" IsDefault="True" Padding="14,6" Click="Save_Click"/>
+            </StackPanel>
+            <Button Content="恢复默认" Padding="14,6" Click="Reset_Click"/>
+        </DockPanel>
+        <TextBlock x:Name="EditorMessage" DockPanel.Dock="Bottom" Margin="0,10,0,0" MinHeight="20" TextWrapping="Wrap"
+                   Foreground="{DynamicResource MutedBrush}"/>
+        <StackPanel>
+            <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}"
+                       Text="点击按键框，再按下组合键。需带 Ctrl、Alt、Shift 或 Win。Delete 清除，Esc 退出录入。保存时会检查重复或被占用的按键。"/>
+            <DockPanel Margin="0,14,0,10" LastChildFill="False">
+                <Button DockPanel.Dock="Right" Content="只换修饰键" Padding="12,6" Click="ApplyModifiers_Click"/>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="整组修饰键" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                    <CheckBox x:Name="ModCtrlBox" Content="Ctrl" Margin="0,0,12,0" VerticalAlignment="Center"/>
+                    <CheckBox x:Name="ModAltBox" Content="Alt" Margin="0,0,12,0" VerticalAlignment="Center"/>
+                    <CheckBox x:Name="ModShiftBox" Content="Shift" Margin="0,0,12,0" VerticalAlignment="Center"/>
+                    <CheckBox x:Name="ModWinBox" Content="Win" VerticalAlignment="Center"/>
+                </StackPanel>
+            </DockPanel>
+            <ScrollViewer MaxHeight="420" VerticalScrollBarVisibility="Auto">
+                <StackPanel x:Name="Rows"/>
+            </ScrollViewer>
+        </StackPanel>
+    </DockPanel>
+</Window>

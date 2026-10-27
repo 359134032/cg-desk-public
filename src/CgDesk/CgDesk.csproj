@@ -1,0 +1,44 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <ApplicationTitle>魔力窗口台</ApplicationTitle>
+    <AssemblyName>CgDesk</AssemblyName>
+    <RootNamespace>CgDesk</RootNamespace>
+    <Version>0.1.7</Version>
+    <Deterministic>true</Deterministic>
+    <PathMap>$(MSBuildProjectDirectory)=/_/CgDesk</PathMap>
+    <EnableSourceLink>false</EnableSourceLink>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="Native\**" />
+    <Content Remove="Native\**" />
+    <None Remove="Native\**" />
+    <EmbeddedResource Remove="Native\**" />
+    <None Remove="Shaders\*.h" />
+    <EmbeddedResource Include="Shaders\ffx_a.h" LogicalName="CgDesk.Shaders.ffx_a.h" />
+    <EmbeddedResource Include="Shaders\ffx_fsr1.h" LogicalName="CgDesk.Shaders.ffx_fsr1.h" />
+    <Resource Include="Assets\AppIcon.ico" />
+    <EmbeddedResource Include="Assets\update-public-keys.json" LogicalName="CgDesk.UpdateKeys.json" />
+    <Content Include="Native\ddraw-proxy.dll" Link="ddraw-proxy.dll" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Native\enhance-inject.exe" Link="enhance-inject.exe" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\.tools\dgv\MS\x86\DDraw.dll" Link="dgv\ddraw_dgv.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
+    <PackageReference Include="Vortice.D3DCompiler" Version="3.8.3" />
+    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+  </ItemGroup>
+
+</Project>

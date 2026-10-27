@@ -1,0 +1,86 @@
+<Window x:Class="CgDesk.GuideWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="攻略"
+        Icon="/Assets/AppIcon.ico"
+        Width="440"
+        Height="720"
+        MinWidth="360"
+        MinHeight="480"
+        WindowStartupLocation="Manual"
+        ShowActivated="False"
+        Background="{DynamicResource InkBrush}"
+        Foreground="{DynamicResource TextBrush}"
+        FontFamily="Segoe UI Variable Text, Microsoft YaHei UI"
+        FontSize="13"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display">
+    <Border Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" Margin="8" CornerRadius="12" Padding="12">
+        <DockPanel>
+            <StackPanel x:Name="GuideHeader" DockPanel.Dock="Top">
+                <DockPanel Margin="0,0,0,8" LastChildFill="True">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <CheckBox x:Name="PinBox" Content="置顶" Margin="0,0,8,0" VerticalAlignment="Center"
+                                  ToolTip="浮在其他窗口上面" Checked="PinBox_Changed" Unchecked="PinBox_Changed"/>
+                        <Button Content="浏览器" Padding="10,4" FontSize="12" Click="GuideOpenExternal_Click"
+                                ToolTip="用系统浏览器打开当前页"/>
+                    </StackPanel>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="攻略" FontSize="16" FontWeight="SemiBold"/>
+                        <TextBlock Margin="0,1,0,0" FontSize="11" Foreground="{DynamicResource MutedBrush}"
+                                   Text="拖到任意位置，大小会记住"/>
+                    </StackPanel>
+                </DockPanel>
+                <Grid Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid Margin="0,0,6,0">
+                        <TextBox x:Name="GuideSearchBox" AutomationProperties.Name="百科关键词" ToolTip="输入关键词，回车搜索。分类可在百科页面中切换。" PreviewKeyDown="GuideSearchBox_PreviewKeyDown"/>
+                        <TextBlock Text="搜索百科关键词" Margin="10,0,8,0" VerticalAlignment="Center" FontSize="12"
+                                   Foreground="{DynamicResource MutedBrush}" IsHitTestVisible="False" TextTrimming="CharacterEllipsis">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Text, ElementName=GuideSearchBox}" Value="">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+                    <Button Grid.Column="1" Content="搜索" AutomationProperties.Name="百科搜索" Padding="10,4" FontSize="12" Click="GuideSearch_Click"/>
+                </Grid>
+                <WrapPanel Margin="0,0,0,8">
+                    <Button x:Name="GuideBackButton" Content="后退" Margin="0,0,6,6" Padding="8,4" FontSize="12" IsEnabled="False" Click="GuideBack_Click"/>
+                    <Button x:Name="GuideForwardButton" Content="前进" Margin="0,0,6,6" Padding="8,4" FontSize="12" IsEnabled="False" Click="GuideForward_Click"/>
+                    <Button x:Name="GuideReloadButton" Content="刷新" Margin="0,0,6,6" Padding="8,4" FontSize="12" IsEnabled="False" Click="GuideReload_Click"/>
+                    <Button x:Name="GuideHomeButton" Content="列表" Margin="0,0,6,6" Padding="8,4" FontSize="12" IsEnabled="False" Click="GuideHome_Click"
+                            ToolTip="打开当前分类的列表"/>
+                </WrapPanel>
+                <TextBlock x:Name="GuideStateText" Margin="0,0,0,8" FontSize="11" Foreground="{DynamicResource MutedBrush}"
+                           TextTrimming="CharacterEllipsis" Text="正在打开魔力百科"/>
+            </StackPanel>
+            <Grid>
+                <Border Background="{DynamicResource FieldBrush}" CornerRadius="8" ClipToBounds="True">
+                    <wv2:WebView2 x:Name="GuideView"/>
+                </Border>
+                <Border x:Name="GuideFallback" Background="{DynamicResource FieldBrush}" Padding="12" Visibility="Collapsed" CornerRadius="8">
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock x:Name="GuideFallbackText" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"/>
+                        <Button x:Name="GuideRuntimeButton" Content="重新安装" Margin="0,12,0,0" Padding="12,6" HorizontalAlignment="Left"
+                                Visibility="Collapsed" Click="GuideRuntime_Click"/>
+                        <Button x:Name="GuideRetryButton" Content="重试打开页面" Margin="0,12,0,0" Padding="12,6" HorizontalAlignment="Left"
+                                Visibility="Collapsed" Click="GuideRetry_Click"/>
+                        <Button Content="用系统浏览器打开" Margin="0,8,0,0" Padding="12,6" HorizontalAlignment="Left" Click="GuideOpenExternal_Click"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </DockPanel>
+    </Border>
+</Window>

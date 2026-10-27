@@ -1,0 +1,203 @@
+<Window x:Class="CgDesk.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="魔力窗口台" Icon="/Assets/AppIcon.ico"
+        Width="1200" Height="800" MinWidth="760" MinHeight="560"
+        Background="{DynamicResource InkBrush}" Foreground="{DynamicResource TextBrush}"
+        FontFamily="Segoe UI Variable Text, Microsoft YaHei UI" FontSize="13"
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType"
+        WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <Style x:Key="SettingsButton" TargetType="ToggleButton">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="MinWidth" Value="120"/>
+            <Setter Property="MinHeight" Value="38"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Bd" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource GoldBrush}"
+                                BorderThickness="2" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource SelectBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderThickness" Value="3"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition x:Name="SideColumn" Width="0"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Border x:Name="Toolbar" Grid.ColumnSpan="2" Background="{DynamicResource PanelBrush}"
+                BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="12,9">
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <ToggleButton x:Name="SettingsToggle" Grid.Column="1" Style="{StaticResource SettingsButton}" Margin="14,0,0,0"
+                              VerticalAlignment="Top" Click="Settings_Click" AutomationProperties.Name="设置与画质"
+                              ToolTip="登录器、画质增强、主题、热键与关闭行为">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" Foreground="{DynamicResource GoldBrush}" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                        <TextBlock Text="设置" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="SettingsStateText" Text="展开" FontSize="11" FontWeight="Normal" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                    </StackPanel>
+                </ToggleButton>
+            <WrapPanel Grid.Column="0" VerticalAlignment="Center">
+                <TextBlock Text="魔力窗口台" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,18,0"/>
+                <Button x:Name="LaunchButton" Content="启动游戏" Style="{StaticResource AccentButton}" Click="OpenLauncher_Click" Margin="0,0,8,0"/>
+                <Button Content="接入窗口" Click="ConnectWindow_Click" Margin="0,0,8,0" ToolTip="选择仍在桌面上的游戏窗口，手动接入"/>
+                <Button Content="重新扫描" Click="Refresh_Click" Margin="0,0,8,0"/>
+                <Button x:Name="ArrangeButton" Content="重新接入" Click="Arrange_Click" Margin="0,0,8,0"/>
+                <Button x:Name="MiniButton" Content="迷你控制台" Click="Dock_Click" Margin="0,0,8,0"/>
+                <ToggleButton x:Name="GuideNav" Content="攻略" Style="{StaticResource SideToggle}" Click="ToggleGuide_Click" Margin="0,0,8,0" ToolTip="打开独立攻略窗口"/>
+            </WrapPanel>
+            </Grid>
+        </Border>
+        <Border x:Name="SideBar" Grid.Row="1" Background="{DynamicResource SideBrush}" Visibility="Collapsed"
+                BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,1,0">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="12,14">
+                    <DockPanel Margin="0,0,0,16">
+                        <Button DockPanel.Dock="Right" Content="收起" Padding="8,4" HorizontalAlignment="Right" Click="CollapseSettings_Click"/>
+                        <TextBlock Text="设置" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    </DockPanel>
+                    <TextBlock Text="游戏启动" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                    <TextBlock Text="官方登录器" Foreground="{DynamicResource MutedBrush}"/>
+                    <TextBox x:Name="LauncherPathBox" Margin="0,6,0,8" LostKeyboardFocus="LauncherPath_LostFocus" ToolTip="官方登录器 EXE 路径"/>
+                    <Button Content="更换登录器…" Click="BrowseLauncher_Click" HorizontalAlignment="Left"/>
+                    <TextBlock Text="账号密码在官方登录器中输入。" TextWrapping="Wrap" Margin="0,8,0,18" Foreground="{DynamicResource MutedBrush}"/>
+                    <TextBlock Text="画面" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="EnhanceBox" Content="画质增强" Style="{StaticResource Switch}" Margin="0,6" Checked="EnhanceBox_Changed" Unchecked="EnhanceBox_Changed"/>
+                    <TextBlock x:Name="SharpnessLabel" Text="锐化强度 70%" Margin="0,8,0,4" Foreground="{DynamicResource MutedBrush}"/>
+                    <Slider x:Name="SharpnessSlider" Minimum="0" Maximum="1" Value="0.7" TickFrequency="0.05" IsSnapToTickEnabled="True"
+                            SmallChange="0.05" LargeChange="0.1" ValueChanged="SharpnessSlider_Changed" IsEnabled="{Binding IsChecked, ElementName=EnhanceBox}"
+                            ToolTip="调节边缘锐化，数值过高可能产生白边；不改变游戏分辨率。"/>
+                    <CheckBox x:Name="LiveSmallBox" Content="实时预览" Style="{StaticResource Switch}" Margin="0,12,0,6" Checked="LiveSmallBox_Changed" Unchecked="LiveSmallBox_Changed" ToolTip="关闭后，其他窗口的预览停在当前帧"/>
+                    <CheckBox x:Name="DarkBox" Content="深色模式" Style="{StaticResource Switch}" Margin="0,6,0,18" Checked="DarkBox_Changed" Unchecked="DarkBox_Changed"/>
+                    <TextBlock Text="快捷键" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="HotkeyBox" Content="启用热键" Style="{StaticResource Switch}" Margin="0,6" Checked="HotkeyBox_Changed" Unchecked="HotkeyBox_Changed"/>
+                    <Button x:Name="EditHotkeyButton" Content="编辑热键…" Click="EditHotkeys_Click" HorizontalAlignment="Left" Margin="0,4,0,18"/>
+                    <TextBlock Text="关闭窗口" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="CloseToTrayBox" Content="关闭时收进托盘" Style="{StaticResource Switch}" Margin="0,6" Checked="CloseBehavior_Changed" Unchecked="CloseBehavior_Changed"/>
+                    <TextBlock Text="最小化保留在任务栏。退出窗口台会将游戏放回桌面，不关闭游戏。" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,10"/>
+                    <Button Content="退出窗口台" Click="Exit_Click" HorizontalAlignment="Left" Margin="0,0,0,18"/>
+                    <TextBlock Text="软件更新" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="UpdateChecksBox" Content="自动检测新版本" Style="{StaticResource Switch}" Margin="0,6"
+                              Checked="UpdateChecks_Changed" Unchecked="UpdateChecks_Changed"/>
+                    <TextBlock x:Name="UpdateSourceText" Text="尚未配置更新源" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,8"/>
+                    <WrapPanel Margin="0,0,0,8">
+                        <Button x:Name="CheckUpdatesButton" Content="检查更新" Click="CheckUpdates_Click" Margin="0,0,6,6"/>
+                        <Button Content="更新源…" Click="UpdateSources_Click" Margin="0,0,0,6"/>
+                    </WrapPanel>
+                    <TextBlock x:Name="UpdateStatusText" Text="可在更新源设置中配置主、备用地址。" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,18"/>
+                    <TextBlock x:Name="VersionText" Foreground="{DynamicResource MutedBrush}"/>
+                    <Button Content="复制诊断信息" Click="CopyDiagnostics_Click" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+        <Grid Grid.Row="1" Grid.Column="1" Margin="12">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+            <Border x:Name="EnvBar" Visibility="Collapsed" Margin="0,0,0,10" Background="{DynamicResource WarnBarBrush}"
+                    BorderBrush="{DynamicResource WarnBarLineBrush}" BorderThickness="1" Padding="12" CornerRadius="8">
+                <StackPanel>
+                    <TextBlock x:Name="EnvBarText" TextWrapping="Wrap"/>
+                    <ProgressBar x:Name="EnvBarProgress" Height="6" Margin="0,8,0,0" Minimum="0" Maximum="100"/>
+                    <Button x:Name="EnvRetryButton" Content="重试" HorizontalAlignment="Left" Margin="0,8,0,0" Visibility="Collapsed" Click="GuideRuntime_Click"/>
+                </StackPanel>
+            </Border>
+            <Border x:Name="LayoutPane" Grid.Row="1">
+                <DockPanel>
+                    <DockPanel x:Name="DockBar" DockPanel.Dock="Top" Visibility="Collapsed" Margin="0,0,0,8" LastChildFill="True">
+                        <Button Content="展开控制台" Click="Dock_Click" Margin="0,0,8,0"/>
+                        <TextBlock Text="游戏留在桌面 · 点预览切换" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"/>
+                    </DockPanel>
+                    <StackPanel x:Name="LayoutHeader" DockPanel.Dock="Top" Margin="2,0,0,8">
+                        <TextBlock Text="游戏画面" FontSize="16" FontWeight="SemiBold"/>
+                    </StackPanel>
+                    <Grid x:Name="Stage">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition x:Name="SmallColumn" Width="0"/></Grid.ColumnDefinitions>
+                        <Border x:Name="MainFrame" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="10" Padding="8">
+                            <Grid>
+                                <DockPanel x:Name="MainPane" Visibility="Collapsed">
+                                    <StackPanel x:Name="MainCaption" DockPanel.Dock="Top" Orientation="Horizontal" Margin="2,0,0,8">
+                                        <Border x:Name="MainBadge" Width="26" Height="20" CornerRadius="5" Margin="0,0,8,0" Visibility="Collapsed">
+                                            <TextBlock x:Name="MainBadgeText" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="White"/>
+                                        </Border>
+                                        <TextBlock x:Name="MainThumbLabel" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                    <ScrollViewer x:Name="GameScroller" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                                        <Border x:Name="MainViewport" Background="#1D1D1F" CornerRadius="6"/>
+                                    </ScrollViewer>
+                                </DockPanel>
+                                <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="460" Margin="20">
+                                    <TextBlock x:Name="EmptyTitle" Text="开始接入第一个游戏窗口" FontSize="22" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="PreviewEmptyText" Text="先选择官方登录器，进入游戏后会自动接入。" TextWrapping="Wrap" TextAlignment="Center" Foreground="{DynamicResource MutedBrush}" Margin="0,12,0,20" FontSize="14"/>
+                                    <Button x:Name="EmptyActionButton" Content="选择登录器并启动" Style="{StaticResource AccentButton}" HorizontalAlignment="Center" Padding="20,10" Click="OpenLauncher_Click"/>
+                                    <Button Content="游戏已在桌面？手动接入窗口" Click="ConnectWindow_Click" HorizontalAlignment="Center" Margin="0,12,0,0"/>
+                                    <TextBlock Text="选择登录器 → 进入游戏 → 自动接入" Foreground="{DynamicResource MutedBrush}" TextAlignment="Center" Margin="0,20,0,0"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                        <ScrollViewer x:Name="ThumbScroller" Grid.Column="1" Margin="8,0,0,0" Visibility="Collapsed" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                            <StackPanel x:Name="ThumbStrip" HorizontalAlignment="Center"/>
+                        </ScrollViewer>
+                        <ScrollViewer x:Name="MiniScroller" Grid.ColumnSpan="2" Visibility="Collapsed" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                            <WrapPanel x:Name="MiniWindows"/>
+                        </ScrollViewer>
+                    </Grid>
+                </DockPanel>
+            </Border>
+        </Grid>
+        <Border x:Name="Footer" Grid.Row="2" Grid.ColumnSpan="2" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Background="{DynamicResource PanelBrush}" Padding="12,8">
+            <StackPanel>
+                <Border x:Name="UpdateBar" Visibility="Collapsed" BorderBrush="{DynamicResource GoldBrush}" BorderThickness="1" Background="{DynamicResource PanelBrush}" CornerRadius="6" Padding="10" Margin="0,0,0,8">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock x:Name="UpdateNoticeText" TextWrapping="Wrap" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="UpdateNotesText" TextWrapping="Wrap" MaxHeight="44" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource MutedBrush}" Margin="0,3,0,0"/>
+                            <ProgressBar x:Name="UpdateProgress" Minimum="0" Maximum="100" Height="5" Margin="0,6,0,0" Visibility="Collapsed"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,0,0">
+                            <Button x:Name="DownloadUpdateButton" Content="下载更新" Click="DownloadUpdate_Click" Style="{StaticResource AccentButton}"/>
+                            <Button x:Name="CancelUpdateButton" Content="取消下载" Click="CancelUpdate_Click" Visibility="Collapsed" Margin="6,0,0,0"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                <WrapPanel>
+                    <TextBlock x:Name="ConnectionStateText" Text="等待游戏窗口" FontWeight="SemiBold" Margin="0,0,18,0"/>
+                    <TextBlock x:Name="EnhanceStateText" Text="画质增强已关闭" Foreground="{DynamicResource MutedBrush}" Margin="0,0,18,0"/>
+                    <TextBlock x:Name="HotkeyStateText" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"/>
+                </WrapPanel>
+                <TextBlock x:Name="StatusText" Text="选择登录器，或手动接入桌面上的游戏窗口。" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,0"/>
+                <Border x:Name="ConnectionErrorBar" Visibility="Collapsed" Background="{DynamicResource WarnBarBrush}" CornerRadius="5" Padding="8" Margin="0,6,0,0">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="复制诊断" Click="CopyDiagnostics_Click" Margin="8,0,0,0"/>
+                        <TextBlock x:Name="ConnectionErrorText" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                    </DockPanel>
+                </Border>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

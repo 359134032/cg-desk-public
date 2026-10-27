@@ -1,0 +1,9 @@
+bin/
+obj/
+.vs/
+/release/
+src/CgDesk/release/
+*.user
+*.suo
+TestResults/
+/artifacts/
