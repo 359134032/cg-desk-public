@@ -69,13 +69,50 @@ internal static partial class Program
         var githubHandler = new UpdateHandler((request, _) => Task.FromResult(Response(request.RequestUri!.Host == "api.github.com" ? releaseMetadata : signed)));
         using (var service = new UpdateService(githubHandler, keys))
         {
-            Require(service.CheckAsync([githubPage], "stable", null, default).GetAwaiter().GetResult().IsNewer && githubHandler.Requests.Count == 2, "A GitHub Releases source discovers and verifies its signed manifest asset.");
-            Require(githubHandler.Requests[0].AbsolutePath.EndsWith("/releases/latest"), "Stable GitHub detection uses the latest published release API.");
+            Require(service.CheckAsync([githubPage], "stable", null, default).GetAwaiter().GetResult().IsNewer && githubHandler.Requests.Count == 1, "A GitHub Releases stable source directly verifies its signed manifest asset.");
+            Require(githubHandler.Requests[0].AbsolutePath.EndsWith("/releases/latest/download/cgdesk-update-stable.json") && githubHandler.Requests.All(uri => uri.Host != "api.github.com"), "Stable checks never consume the anonymous REST API quota.");
         }
         var draftMetadata = JsonSerializer.SerializeToUtf8Bytes(new { draft = true, prerelease = false, assets = new[] { new { name = "cgdesk-update-stable.json", browser_download_url = githubAsset } } });
         using (var service = new UpdateService(new UpdateHandler((_, _) => Task.FromResult(Response(draftMetadata))), keys))
-            RejectUpdate(() => service.CheckAsync([githubPage], "stable", null, default).GetAwaiter().GetResult(), "GitHub draft releases never enter client updates.");
+            RejectUpdate(() => service.CheckAsync([githubPage], "beta", null, default).GetAwaiter().GetResult(), "GitHub draft releases never enter client updates.");
         Require(UpdateService.GitHubApi(new Uri(githubPage), "beta")!.Query == "?per_page=20", "Beta GitHub detection searches published prereleases separately.");
+        var betaMetadata = JsonSerializer.SerializeToUtf8Bytes(new { draft = false, prerelease = true, assets = new[] { new { name = "cgdesk-update-beta.json", browser_download_url = githubAsset.Replace("stable.json", "beta.json") } } });
+        var betaHandler = new UpdateHandler((request, _) => Task.FromResult(Response(request.RequestUri!.Host == "api.github.com" ? betaMetadata : Signed(manifest with { Channel = "beta", Version = "99.0.0-beta.1" }))));
+        using (var service = new UpdateService(betaHandler, keys))
+            Require(service.CheckAsync([githubPage], "beta", null, default).GetAwaiter().GetResult().Manifest.Version == "99.0.0-beta.1" && betaHandler.Requests.Count == 2, "Beta checks still discover published prereleases instead of silently checking stable releases.");
+
+        var reset = DateTimeOffset.UtcNow.AddMinutes(20).ToUnixTimeSeconds();
+        HttpResponseMessage Limited()
+        {
+            var response = Response(Encoding.UTF8.GetBytes("rate limit exceeded for 192.0.2.123"), HttpStatusCode.Forbidden);
+            response.Headers.Add("X-RateLimit-Remaining", "0"); response.Headers.Add("X-RateLimit-Reset", reset.ToString());
+            return response;
+        }
+        var limitedHandler = new UpdateHandler((_, _) => Task.FromResult(Limited()));
+        using (var service = new UpdateService(limitedHandler, keys))
+        {
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                try { service.CheckAsync([githubPage], "beta", null, default).GetAwaiter().GetResult(); throw new InvalidOperationException("Expected throttling."); }
+                catch (UpdateException error)
+                { Require(error.Message.Contains("匿名接口已限流") && !error.Message.Contains("公开可读") && !error.Message.Contains("192.0.2.123") && error.RetryAt?.ToUnixTimeSeconds() == reset, "Rate-limit errors identify the cause and reset time without leaking server error bodies."); }
+            }
+            Require(limitedHandler.Requests.Count == 1, "Repeated manual checks do not retry the GitHub API before its reset time.");
+        }
+        var rateFallback = new UpdateHandler((request, _) => Task.FromResult(request.RequestUri!.Host == "api.github.com" ? Limited() : Response(Signed(manifest with { Channel = "beta" }))));
+        using (var service = new UpdateService(rateFallback, keys))
+            Require(service.CheckAsync([githubPage, "https://mirror.example.com/beta.json"], "beta", null, default).GetAwaiter().GetResult().SourceHost == "mirror.example.com", "An API rate limit still permits checking a configured signed mirror.");
+        var tooManyHandler = new UpdateHandler((_, _) =>
+        {
+            var response = Response([], HttpStatusCode.TooManyRequests);
+            response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromMinutes(2));
+            return Task.FromResult(response);
+        });
+        using (var service = new UpdateService(tooManyHandler, keys))
+        {
+            try { service.CheckAsync(["https://mirror.example.com/stable.json"], "stable", null, default).GetAwaiter().GetResult(); throw new InvalidOperationException("Expected throttling."); }
+            catch (UpdateException error) { Require(error.Message.Contains("请求过于频繁") && error.RetryAt > DateTimeOffset.UtcNow.AddMinutes(1), "HTTP 429 honors Retry-After instead of reporting repository privacy."); }
+        }
         var fallbackHandler = new UpdateHandler((request, _) => Task.FromResult(request.RequestUri!.Host.StartsWith("primary")
             ? Response([], HttpStatusCode.Forbidden) : Response(signed)));
         using (var service = new UpdateService(fallbackHandler, keys))
@@ -83,7 +120,7 @@ internal static partial class Program
             var result = service.CheckAsync([primary, backup], "stable", null, default).GetAwaiter().GetResult();
             Require(result.SourceHost == "backup.example.com" && fallbackHandler.Requests.Count == 2, "Unavailable private or blocked primary sources fall back to the backup.");
             try { service.CheckAsync([primary], "stable", null, default).GetAwaiter().GetResult(); throw new InvalidOperationException("Expected failure."); }
-            catch (UpdateException error) { Require(error.Message.Contains("403") && !error.Message.Contains("redacted-fixture"), "Network errors never expose URL query parameters."); }
+            catch (UpdateException error) { Require(error.Message.Contains("403") && error.Message.Contains("网络限制或访问权限") && !error.Message.Contains("redacted-fixture"), "Unclassified 403 errors do not assert repository privacy or expose URL query parameters."); }
         }
         var timeoutHandler = new UpdateHandler(async (request, cancel) =>
         {
@@ -160,6 +197,19 @@ internal static partial class Program
             Require(uiHandler.Requests.Count == 1, "Disabling automatic updates suppresses automatic network checks.");
         }
         finally { CloseDesk(main); }
+
+        var limitedMain = new MainWindow(new AppConfig { HotkeysEnabled = false, UpdateManifestUrl = githubPage, UpdateChannel = "beta" }, initializeEnhancement: false,
+            windowFilter: _ => false, persistConfiguration: false, updateService: new UpdateService(new UpdateHandler((_, _) => Task.FromResult(Limited())), keys));
+        app.MainWindow = limitedMain; Field(limitedMain, "_guideStarted", true);
+        try
+        {
+            limitedMain.Show(); Pump();
+            var limitedCheck = (Task)Call(limitedMain, "CheckForUpdatesAsync", true)!;
+            Wait(() => limitedCheck.IsCompleted, "A rate-limited check completes without blocking the UI.");
+            limitedCheck.GetAwaiter().GetResult();
+            Require(limitedMain.Config.NextUpdateCheckUtc.ToUnixTimeSeconds() == reset && ((TextBlock)limitedMain.FindName("UpdateStatusText")).Text.Contains("匿名接口已限流"), "The UI shows throttling and saves the server's retry deadline.");
+        }
+        finally { CloseDesk(limitedMain); }
 
         var closingMain = new MainWindow(new AppConfig { HotkeysEnabled = false, UpdateManifestUrl = primary }, initializeEnhancement: false,
             windowFilter: _ => false, persistConfiguration: false, updateService: new UpdateService(new UpdateHandler(async (_, cancel) =>

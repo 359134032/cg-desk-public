@@ -128,7 +128,8 @@ public partial class MainWindow
         catch (Exception error) when (error is UpdateException or IOException or UnauthorizedAccessException or FormatException)
         {
             if (_updatesClosed || generation != _updateSourceGeneration) return;
-            _config.NextUpdateCheckUtc = DateTimeOffset.UtcNow.AddHours(1);
+            _config.NextUpdateCheckUtc = error is UpdateException { RetryAt: { } retry } && retry > DateTimeOffset.UtcNow
+                ? retry : DateTimeOffset.UtcNow.AddHours(1);
             UpdateStatusText.Text = error is UpdateException ? error.Message : "更新检查未完成，请检查配置或稍后重试。";
             if (_persistConfiguration) { try { SaveConfig(); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
         }

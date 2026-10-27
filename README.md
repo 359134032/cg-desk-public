@@ -98,7 +98,7 @@ dotnet run --project tests/CgDesk.Regression/CgDesk.Regression.csproj -c Release
 ```powershell
 dotnet run --project tests/CgDesk.Regression/CgDesk.Regression.csproj -c Release -- --stress-layout --enforce-clipping
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-SourcePrivacy.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-SourcePrivacy.ps1 -PackagePath release/CgDesk-0.1.7-win-x64.zip
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-SourcePrivacy.ps1 -PackagePath release/CgDesk-0.1.8-win-x64.zip
 ```
 
 详见[首发验收说明](docs/reports/release-0.1.7.md)。当前分发目标为 Windows x64，不能仅凭编译目标认定所有 Windows 10 版本受支持。
@@ -108,6 +108,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-SourcePrivacy.p
 在「设置 → 软件更新」开启自动检测，点「更新源…」配置主、备用 HTTPS 清单地址。启动后自动检查，成功后每 6 小时检查一次，失败后间隔至少 1 小时；也可手动点「检查更新」。发现新版后在底部保留提醒，并尝试托盘通知，点击后下载并校验安装包，支持进度和取消。安装由用户自行解压新版本，不会自动关闭游戏或替换正在运行的程序。
 
 默认更新源为[本项目的公开 Releases](https://github.com/359134032/cg-desk-public/releases)，无需 GitHub 凭据。旧版空地址或旧项目地址会自动迁移，自定义镜像和关闭自动检查的选择会保留。国内连接不畅时，可配置国内可达的对象存储/CDN；清单和 ZIP 都需要镜像。配置、签名清单生成和发布流程见[更新发布文档](docs/update-publishing.md)，架构见[更新源设计](docs/update-source-design.md)。
+
+0.1.8 起，稳定通道直接读取正式 Release 的签名附件，避开 GitHub 匿名 REST API 限流。测试通道仍需 API 发现预发布版本，遇到限流会显示恢复时间并退避；不会再把所有 403 统一解释为仓库不公开。
 
 重新生成 DirectDraw 入口时显式指定输出位置：
 

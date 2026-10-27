@@ -12,7 +12,9 @@
 
 ## GitHub Release 附件
 
-稳定通道读取最新正式 Release 的 `cgdesk-update-stable.json`。测试通道搜索最近 20 个已发布 Release 的 `cgdesk-update-beta.json`。草稿不参与检测；稳定通道不接收预发布版本。
+稳定通道直接通过 `releases/latest/download/cgdesk-update-stable.json` 读取最新正式 Release 的签名清单，不调用 REST API，不消耗匿名接口额度。测试通道为发现预发布版本，仍搜索最近 20 个已发布 Release 的 `cgdesk-update-beta.json`。草稿不参与检测；稳定通道不接收预发布版本。
+
+GitHub 匿名 REST API 按出口 IP 共享每小时 60 次额度。0.1.7 可能把限流 403 误报为更新源不公开；0.1.8 已修复。测试通道若被限流，会显示恢复时间，并在恢复前避免重复请求；配置的签名备用源仍会尝试。其他 403、401 与 404 分别提示访问拒绝、需要授权和发布/地址不存在。详见[GitHub 限流说明](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)。
 
 每个正式版本上传完整 ZIP、稳定清单和测试通道清单，使测试通道也能接收最终版本。清单和 ZIP 都需要公开可读。GitHub Release 权限与下载说明见[官方文档](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases)。
 

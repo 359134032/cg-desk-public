@@ -1,4 +1,5 @@
 using System.IO;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
@@ -9,7 +10,10 @@ using CgDesk.Models;
 namespace CgDesk.Services;
 
 internal sealed record AvailableUpdate(UpdateManifest Manifest, UpdatePackage Package, string SourceHost, bool IsNewer);
-internal sealed class UpdateException(string message) : Exception(message);
+internal sealed class UpdateException(string message, DateTimeOffset? retryAt = null) : Exception(message)
+{
+    internal DateTimeOffset? RetryAt { get; } = retryAt;
+}
 
 internal sealed class UpdateService : IDisposable
 {
@@ -19,6 +23,7 @@ internal sealed class UpdateService : IDisposable
     private readonly HttpClient _http;
     private readonly IReadOnlyDictionary<string, string> _keys;
     private readonly TimeSpan _checkTimeout;
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _apiRetryAt = new(StringComparer.OrdinalIgnoreCase);
     public UpdateService(HttpMessageHandler? handler = null, IReadOnlyDictionary<string, string>? keys = null, TimeSpan? checkTimeout = null)
     {
         _http = new HttpClient(handler ?? new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false, ConnectTimeout = TimeSpan.FromSeconds(8) })
@@ -59,6 +64,7 @@ internal sealed class UpdateService : IDisposable
         if (urls.Length == 0) throw new UpdateException("尚未配置更新源，请先打开「更新源设置」。");
         if (channel is not ("stable" or "beta")) throw new UpdateException("更新通道无效。");
         var errors = new List<string>();
+        DateTimeOffset? retryAt = null;
         foreach (var url in urls)
         {
             cancel.ThrowIfCancellationRequested();
@@ -70,17 +76,24 @@ internal sealed class UpdateService : IDisposable
                 timeout.CancelAfter(_checkTimeout);
                 if (GitHubApi(uri, channel) is Uri api)
                 {
-                    var metadata = await ReadBytesAsync(api, 1024 * 1024, timeout.Token).ConfigureAwait(false);
-                    uri = GitHubManifest(metadata, channel);
+                    if (channel == "stable") uri = GitHubStableManifest(api);
+                    else
+                    {
+                        var metadata = await ReadBytesAsync(api, 1024 * 1024, timeout.Token).ConfigureAwait(false);
+                        uri = GitHubManifest(metadata, channel);
+                    }
                 }
                 var bytes = await ReadBytesAsync(uri, MaxManifestBytes, timeout.Token).ConfigureAwait(false);
                 return Verify(bytes, channel, highestSeen, host);
             }
             catch (OperationCanceledException) when (!cancel.IsCancellationRequested) { errors.Add(host + "：连接超时"); }
             catch (Exception error) when (error is UpdateException or HttpRequestException or IOException or JsonException or CryptographicException or FormatException or ArgumentException)
-            { errors.Add(host + "：" + Reason(error)); }
+            {
+                errors.Add(host + "：" + Reason(error));
+                if (error is UpdateException { RetryAt: { } next } && (retryAt == null || next < retryAt)) retryAt = next;
+            }
         }
-        throw new UpdateException(string.Join("；", errors));
+        throw new UpdateException(string.Join("；", errors), retryAt);
     }
 
     private async Task<byte[]> ReadBytesAsync(Uri uri, int limit, CancellationToken cancel)
@@ -108,6 +121,13 @@ internal sealed class UpdateService : IDisposable
         var owner = match.Groups[1].Value; var repo = match.Groups[2].Value;
         if (!Regex.IsMatch(owner, @"\A[A-Za-z0-9_.-]+\z") || !Regex.IsMatch(repo, @"\A[A-Za-z0-9_.-]+\z")) throw new UpdateException("GitHub 仓库地址无效。");
         return new Uri($"https://api.github.com/repos/{owner}/{repo}/releases" + (channel == "beta" ? "?per_page=20" : "/latest"));
+    }
+
+    private static Uri GitHubStableManifest(Uri api)
+    {
+        var parts = api.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        // GitHub's latest/download route selects a published stable release without a REST API call.
+        return new Uri($"https://github.com/{parts[1]}/{parts[2]}/releases/latest/download/cgdesk-update-stable.json");
     }
 
     private static Uri GitHubManifest(byte[] metadata, string channel)
@@ -227,6 +247,9 @@ internal sealed class UpdateService : IDisposable
     {
         for (var redirect = 0; redirect <= 5; redirect++)
         {
+            cancel.ThrowIfCancellationRequested();
+            if (_apiRetryAt.TryGetValue(uri.Host, out var next) && next > DateTimeOffset.UtcNow)
+                throw new UpdateException(RateLimitMessage(uri.Host, next), next);
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             using var headersTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancel);
             headersTimeout.CancelAfter(TimeSpan.FromSeconds(10));
@@ -235,18 +258,48 @@ internal sealed class UpdateService : IDisposable
             {
                 var location = response.Headers.Location; response.Dispose();
                 if (location == null || redirect == 5) throw new UpdateException("下载重定向无效或过多。");
-                if (!Uri.TryCreate(uri, location, out var next)) throw new UpdateException("下载重定向地址无效。");
-                uri = PublicHttps(next.AbsoluteUri);
+                if (!Uri.TryCreate(uri, location, out var target)) throw new UpdateException("下载重定向地址无效。");
+                uri = PublicHttps(target.AbsoluteUri);
                 continue;
             }
             if (!response.IsSuccessStatusCode)
             {
-                var code = (int)response.StatusCode; response.Dispose();
-                throw new UpdateException(code is 401 or 403 or 404 ? $"HTTP {code}，请检查源是否公开可读" : $"HTTP {code}");
+                var code = (int)response.StatusCode;
+                var exhausted = response.Headers.TryGetValues("X-RateLimit-Remaining", out var values) && values.Any(value => value.Trim() == "0");
+                if (code == 429 || code == 403 && (exhausted || response.Headers.RetryAfter != null))
+                {
+                    var retry = RetryTime(response);
+                    response.Dispose();
+                    if (uri.Host.Equals("api.github.com", StringComparison.OrdinalIgnoreCase)) _apiRetryAt[uri.Host] = retry;
+                    throw new UpdateException($"HTTP {code}，" + RateLimitMessage(uri.Host, retry), retry);
+                }
+                response.Dispose();
+                throw new UpdateException(code switch
+                {
+                    401 => "HTTP 401，更新源需要访问授权，请使用公开更新源",
+                    403 => "HTTP 403，服务器拒绝访问，请检查网络限制或访问权限",
+                    404 => "HTTP 404，更新文件或 Release 不存在，请检查发布状态和地址",
+                    _ => $"HTTP {code}"
+                });
             }
             return response;
         }
         throw new UpdateException("重定向过多。");
+    }
+
+    private static string RateLimitMessage(string host, DateTimeOffset retry) =>
+        (host.Equals("api.github.com", StringComparison.OrdinalIgnoreCase) ? "GitHub 匿名接口已限流" : "更新服务器请求过于频繁")
+        + $"，请在 {retry.ToLocalTime():HH:mm} 后重试或使用备用源";
+
+    private static DateTimeOffset RetryTime(HttpResponseMessage response)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var candidate = response.Headers.RetryAfter?.Date;
+        if (response.Headers.RetryAfter?.Delta is { } delta && delta > TimeSpan.Zero && delta <= TimeSpan.FromHours(2)) candidate = now.Add(delta);
+        if (candidate == null && response.Headers.TryGetValues("X-RateLimit-Reset", out var resets)
+            && long.TryParse(resets.FirstOrDefault(), out var seconds) && seconds > now.ToUnixTimeSeconds() && seconds <= now.AddHours(2).ToUnixTimeSeconds())
+            candidate = DateTimeOffset.FromUnixTimeSeconds(seconds);
+        return candidate is { } value && value > now && value <= now.AddHours(2) ? value : now.AddMinutes(1);
     }
 
     private static string Reason(Exception error) => error is UpdateException ? error.Message
