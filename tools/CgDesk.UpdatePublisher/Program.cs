@@ -15,22 +15,58 @@ try
         using var signer = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var publicBytes = signer.ExportSubjectPublicKeyInfo();
         var keyId = Convert.ToHexString(SHA256.HashData(publicBytes))[..16].ToLowerInvariant();
-        var privateBytes = signer.ExportPkcs8PrivateKey();
-        try
-        {
-            var protectedBytes = ProtectedData.Protect(privateBytes, null, DataProtectionScope.CurrentUser);
-            Directory.CreateDirectory(Path.GetDirectoryName(keyPath)!);
-            File.WriteAllText(keyPath, JsonSerializer.Serialize(new ProtectedKey(keyId, Convert.ToBase64String(protectedBytes)), json));
-        }
-        finally { CryptographicOperations.ZeroMemory(privateBytes); }
+        SigningKeys.Save(signer, keyPath);
         Directory.CreateDirectory(Path.GetDirectoryName(publicPath)!);
         File.WriteAllText(publicPath, JsonSerializer.Serialize(new Dictionary<string, string> { [keyId] = Convert.ToBase64String(publicBytes) }, json));
         Console.WriteLine($"Created protected signing key; key ID: {keyId}. Only the public key belongs in source control.");
         return 0;
     }
+    if (args.Length == 3 && args[0] == "check-key")
+    {
+        using var signer = SigningKeys.Open(args[1]);
+        SigningKeys.RequireTrusted(signer, args[2]);
+        Console.WriteLine($"Signing key is usable and matches the client's public key; key ID: {SigningKeys.Id(signer)}.");
+        return 0;
+    }
+    if ((args.Length == 4 || args.Length == 5 && args[4] == "--password-stdin") && args[0] is "export-key" or "import-key")
+    {
+        SigningKeys.EnsureNew(args[2]);
+        var fromStdin = args.Length == 5;
+        if (args[0] == "export-key")
+        {
+            using var signer = SigningKeys.Open(args[1]);
+            SigningKeys.RequireTrusted(signer, args[3]);
+            var password = SigningKeys.ReadPassword(fromStdin, confirm: true);
+            try
+            {
+                var encrypted = signer.ExportEncryptedPkcs8PrivateKey(password,
+                    new PbeParameters(PbeEncryptionAlgorithm.Aes256Cbc, HashAlgorithmName.SHA256, 600_000));
+                SigningKeys.WriteNew(args[2], encrypted);
+            }
+            finally { Array.Clear(password); }
+            Console.WriteLine($"Created password-encrypted portable backup; key ID: {SigningKeys.Id(signer)}. Keep the password separately and test restoration.");
+        }
+        else
+        {
+            var encrypted = File.ReadAllBytes(args[1]);
+            var password = SigningKeys.ReadPassword(fromStdin, confirm: false);
+            using var signer = ECDsa.Create();
+            try
+            {
+                signer.ImportEncryptedPkcs8PrivateKey(password, encrypted, out var read);
+                if (read != encrypted.Length || signer.ExportParameters(false).Curve.Oid.Value != ECCurve.NamedCurves.nistP256.Oid.Value)
+                    throw new InvalidDataException("Backup must contain one ECDSA P-256 key.");
+                SigningKeys.RequireTrusted(signer, args[3]);
+                SigningKeys.Save(signer, args[2]);
+            }
+            finally { Array.Clear(password); }
+            Console.WriteLine($"Imported signing key protected for this Windows user; key ID: {SigningKeys.Id(signer)}. Client public keys were preserved.");
+        }
+        return 0;
+    }
     if (args.Length >= 7 && args[0] == "manifest")
     {
-        var key = JsonSerializer.Deserialize<ProtectedKey>(File.ReadAllText(args[1]), json) ?? throw new InvalidDataException("Invalid protected key file.");
+        using var signer = SigningKeys.Open(args[1]);
         var package = new FileInfo(args[2]);
         var version = ReleaseVersion.Parse(args[3]);
         var channel = args[4];
@@ -48,32 +84,28 @@ try
         var manifest = new UpdateManifest(1, "CgDesk", channel, args[3], DateTimeOffset.UtcNow, notes,
             [new UpdatePackage("win-x64", 19041, package.Length, digest, urls)]);
         var payload = JsonSerializer.SerializeToUtf8Bytes(manifest, json);
-        var privateBytes = ProtectedData.Unprotect(Convert.FromBase64String(key.ProtectedPkcs8), null, DataProtectionScope.CurrentUser);
-        byte[] signature;
-        try
-        {
-            using var signer = ECDsa.Create(); signer.ImportPkcs8PrivateKey(privateBytes, out _);
-            var actualId = Convert.ToHexString(SHA256.HashData(signer.ExportSubjectPublicKeyInfo()))[..16].ToLowerInvariant();
-            if (actualId != key.KeyId) throw new InvalidDataException("Signing key ID mismatch.");
-            signature = signer.SignData(payload, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
-        }
-        finally { CryptographicOperations.ZeroMemory(privateBytes); }
+        var signature = signer.SignData(payload, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
         var outputPath = Path.GetFullPath(args[5]);
         if (string.Equals(outputPath, Path.GetFullPath(args[1]), StringComparison.OrdinalIgnoreCase)
             || string.Equals(outputPath, package.FullName, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Manifest output cannot overwrite the signing key or package.");
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-        File.WriteAllText(outputPath, JsonSerializer.Serialize(new UpdateEnvelope(key.KeyId, Convert.ToBase64String(payload), Convert.ToBase64String(signature)), json));
+        File.WriteAllText(outputPath, JsonSerializer.Serialize(new UpdateEnvelope(SigningKeys.Id(signer), Convert.ToBase64String(payload), Convert.ToBase64String(signature)), json));
         Console.WriteLine($"Created signed {channel} manifest for {args[3]}; SHA256 {digest}; {urls.Length} mirrors.");
         return 0;
     }
-    Console.Error.WriteLine("Usage:\n  keygen <protected-key-file> <public-keys-json>\n  manifest <protected-key-file> <zip> <version> <stable|beta> <output-json> <https-url> [backup-url...]");
+    Console.Error.WriteLine("Usage:\n  keygen <protected-key-file> <public-keys-json>\n  check-key <protected-key-file> <public-keys-json>\n  export-key <protected-key-file> <encrypted-backup.p8> <public-keys-json> [--password-stdin]\n  import-key <encrypted-backup.p8> <new-protected-key-file> <public-keys-json> [--password-stdin]\n  manifest <protected-key-file> <zip> <version> <stable|beta> <output-json> <https-url> [backup-url...]\nPasswords are prompted without echo; never pass a password as a command-line argument.");
     return 1;
 }
 catch (Exception error)
 {
     // Do not echo keys or signed URL parameters in errors.
-    Console.Error.WriteLine(error is CryptographicException ? "Signing key cannot be opened. Use the Windows user and machine that created the protected key." : error is IOException ? "Cannot read or write a release file." : "Invalid publishing arguments or signing configuration.");
+    Console.Error.WriteLine(error switch
+    {
+        CryptographicException => "Cannot decrypt signing key or backup. A DPAPI key requires its original Windows user and machine; a portable backup requires the correct password.",
+        FileNotFoundException => "Signing input file is missing. Restore the existing key from an encrypted backup, or sign on the original machine. Do not replace the client's public key.",
+        IOException => "Cannot read or write a release file; check paths and whether the output already exists.",
+        InvalidOperationException or InvalidDataException => error.Message,
+        _ => "Invalid publishing arguments or signing configuration."
+    });
     return 1;
 }
-
-sealed record ProtectedKey(string KeyId, string ProtectedPkcs8);

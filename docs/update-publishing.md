@@ -28,7 +28,46 @@ GitHub 匿名 REST API 按出口 IP 共享每小时 60 次额度。0.1.7 可能�
 
 客户端仅包含公钥 `src/CgDesk/Assets/update-public-keys.json`。维护者私钥由 Windows DPAPI 保护，保存在本地忽略目录 `artifacts/signing/cgdesk-update-key.dpapi`，不进入源码或发布包。公开克隆不包含此文件，也不能代表官方签名发布。
 
-维护者应备份受保护文件及可恢复的 Windows 用户环境；单独复制 DPAPI 文件到其他机器不足以解密。密钥丢失需通过人工分发新客户端迁移公钥，本版没有远程信任根轮换或 CI 私钥导出功能。
+单独复制 DPAPI 文件到其他机器不足以解密。跨机器发布应先在原电脑、原 Windows 用户下导出密码加密备份，再在目标电脑导入；导入沿用原密钥，不修改客户端公钥。备份使用 .NET 的加密 PKCS#8 格式（AES-256-CBC、PBKDF2-SHA256、600,000 次迭代），不依赖原电脑的 DPAPI 环境。参见 [Microsoft API 说明](https://learn.microsoft.com/en-us/dotnet/api/system.security.cryptography.asymmetricalgorithm.exportencryptedpkcs8privatekey?view=net-10.0)。
+
+### 已有密钥：备份和迁移
+
+在原电脑检查密钥可读，并确认它与源码中的可信公钥一致：
+
+```powershell
+dotnet run --project tools/CgDesk.UpdatePublisher -- check-key artifacts/signing/cgdesk-update-key.dpapi src/CgDesk/Assets/update-public-keys.json
+```
+
+在原电脑导出可跨机器恢复的加密备份。命令会隐藏输入，并要求输入两次至少 12 个字符的密码；建议使用密码管理器生成并单独保存长随机密码。
+
+```powershell
+dotnet run --project tools/CgDesk.UpdatePublisher -- export-key artifacts/signing/cgdesk-update-key.dpapi artifacts/signing/cgdesk-update-key.backup.p8 src/CgDesk/Assets/update-public-keys.json
+```
+
+将 `.p8` 文件通过自己控制的安全渠道复制到新电脑。不要把备份或密码放进 Git、GitHub Releases 或软件 ZIP。建议至少保留两份独立备份，密码与文件分开存储；重装系统、删除原用户前先完成恢复演练。`.gitignore` 已忽略 `artifacts/`、`*.dpapi` 和 `*.p8`，不要使用强制添加来绕过。
+
+在新电脑拉取包含迁移命令的源码，放好备份后执行以下命令，输入原备份密码：
+
+```powershell
+dotnet run --project tools/CgDesk.UpdatePublisher -- import-key artifacts/signing/cgdesk-update-key.backup.p8 artifacts/signing/cgdesk-update-key.dpapi src/CgDesk/Assets/update-public-keys.json
+dotnet run --project tools/CgDesk.UpdatePublisher -- check-key artifacts/signing/cgdesk-update-key.dpapi src/CgDesk/Assets/update-public-keys.json
+```
+
+导入会检查备份是否匹配源码中已有的可信公钥，再用目标 Windows 用户的 DPAPI 重新保护私钥。导出和导入都拒绝覆盖已有目标文件。如果新电脑已有无法解密的 `.dpapi`，先将它改名保留，再导入到原路径。测试恢复时也可以指定另一个全新的输出路径，不必覆盖当前工作密钥。
+
+默认在交互式终端运行，密码不作为命令参数、不回显。自动化调用可显式添加 `--password-stdin`，由安全输入管道提供一行密码（导出不再重复确认）；不要把密码字面量写在命令、脚本、日志或 GitHub 配置文件中。
+
+### 首次生成密钥与丢失处理
+
+只有新项目尚未建立信任公钥时才使用 `keygen`，并在生成后立即执行上面的备份及恢复检查：
+
+```powershell
+dotnet run --project tools/CgDesk.UpdatePublisher -- keygen artifacts/signing/cgdesk-update-key.dpapi src/CgDesk/Assets/update-public-keys.json
+```
+
+生成器拒绝覆盖现有私钥或非空公钥文件。已发布项目缺少私钥时，不要删除公钥后重新生成；旧客户端只信任原公钥，会拒绝新密钥签出的更新。如果原电脑、原 Windows 用户和可解密的备份全部丢失，则不能从公钥恢复私钥，需要人工分发包含新公钥的客户端。本版没有远程信任根轮换功能。
+
+### 签名发布
 
 发布步骤：构建并验证 → 打包和扫描 → 上传版本化 ZIP → 生成两份签名清单 → 离线验签 → 上传清单 → 确认匿名下载 → 最后正式发布。清单输出旁可放同名 `.notes.txt` 作为更新说明。
 
@@ -41,3 +80,5 @@ dotnet run --project tests/CgDesk.Regression -c Release -- --verify-update relea
 ```
 
 正式版本使用自己的版本号和 URL。镜像应提供相同文件，摘要由工具读取 ZIP 自动计算。签名采用 ECDSA P-256/SHA256；私钥不能上传 GitHub 或写入客户端。
+
+仅推送源码、上传 ZIP 或新建 Release 不会生成更新签名。必须为对应 ZIP 使用原密钥生成两份清单，离线验签后，将 `cgdesk-update-stable.json` 和 `cgdesk-update-beta.json` 一起上传到该版本的 Release。已经发布但缺少清单的版本，也可在导入原密钥后为相同 ZIP 补签并补传附件。

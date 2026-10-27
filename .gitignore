@@ -7,3 +7,5 @@ src/CgDesk/release/
 *.suo
 TestResults/
 /artifacts/
+*.dpapi
+*.p8
