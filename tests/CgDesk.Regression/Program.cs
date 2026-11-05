@@ -43,6 +43,7 @@ internal static partial class Program
             if (args.Contains("--stress-layout")) { TestManyWindows(app, args.Contains("--enforce-clipping")); return 0; }
             if (args.Contains("--probe-theme")) { TestTheme(app); return 0; }
             if (args.Contains("--probe-fsr")) { TestSuperResolution(app); return 0; }
+            if (args.Contains("--probe-ime")) { TestImeInput(app); Console.WriteLine($"PASS: {_checks} IME checks."); return 0; }
             if (args.Contains("--probe-dpi-mouse")) { TestScaledMouse(); Console.WriteLine($"PASS: {_checks} dpi mouse checks."); return 0; }
             if (args.Contains("--probe-cursor")) { TestCursorAfterGameExit(app, true); TestCursorAfterGameExit(app, false); return 0; }
             if (args.Contains("--probe-update")) { TestUpdates(app); Console.WriteLine($"PASS: {_checks} update checks."); return 0; }
@@ -52,6 +53,7 @@ internal static partial class Program
             TestConfigPrivacy();
             TestSlotReuse();
             TestSettingsPanel(app);
+            TestImeInput(app);
             TestGuide(app, false);
             TestGuide(app, true);
             TestTheme(app);
@@ -269,14 +271,20 @@ internal static partial class Program
             _ = NativeMethods.GetClientRect(client.Handle, out var nativeClient);
             Require(nativeClient.Right == 800 && nativeClient.Bottom == 600, "Super resolution leaves the game client at 800x600.");
             Call(main, "FocusSeat", 0);
+            Require(GetNativeFocus() == host.HostHandle, "FSR selection focuses the native IME host.");
             var fsrWindow = (IntPtr)typeof(FsrSurface).GetField("_hwnd", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
             var center = new IntPtr(((FsrSurface.OutputSize.Height / 2) << 16) | (FsrSurface.OutputSize.Width / 2));
             PostMessage(fsrWindow, 0x201, new IntPtr(1), center);
             PostMessage(fsrWindow, 0x202, IntPtr.Zero, center);
             Wait(() => ReadFixtureInput(client.ProcessId, "mouse") == "400,300", "FSR forwards clicks to the correct coordinates in the native game.");
-            PostMessage(host.HostHandle, 0x100, new IntPtr(0x41), new IntPtr(1));
-            PostMessage(host.HostHandle, 0x101, new IntPtr(0x41), IntPtr.Zero);
-            Wait(() => ReadFixtureInput(client.ProcessId, "key") == "65", "FSR mode forwards keyboard messages to the game.");
+            // A letter may legitimately start Chinese composition in this desktop's
+            // active IME. Use a game function key to test ordinary key forwarding.
+            PostMessage(host.HostHandle, 0x100, new IntPtr(0x77), new IntPtr(0x00420001));
+            PostMessage(host.HostHandle, 0x101, new IntPtr(0x77), new IntPtr(unchecked((int)0xC0420001)));
+            Wait(() => ReadFixtureInput(client.ProcessId, "key") == "119", "FSR mode forwards keyboard messages to the game.");
+            PostImeMessage(host.HostHandle, 0x0286, new IntPtr('中'), new IntPtr(1));
+            PostImeMessage(host.HostHandle, 0x0286, new IntPtr('文'), new IntPtr(1));
+            Wait(() => ReadFixtureInput(client.ProcessId, "text").EndsWith("中文", StringComparison.Ordinal), "FSR mode delivers committed Chinese text to the separate game process.");
             var fsrGate = typeof(FsrSurface).GetField("Gate", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
             lock (fsrGate)
                 typeof(FsrSurface).GetMethod("Fail", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, ["Regression: capture interrupted"]);
@@ -293,7 +301,7 @@ internal static partial class Program
             CloseDesk(main);
             foreach (var client in Clients.Skip(clientStart)) if (!client.HasExited) { client.Kill(); client.WaitForExit(3000); }
             foreach (var client in Clients.Skip(clientStart))
-                foreach (var kind in new[] { "mouse", "key" })
+                foreach (var kind in new[] { "mouse", "key", "text" })
                     File.Delete(Path.Combine(AppContext.BaseDirectory, $"client-{client.Id}.{kind}"));
             if (File.Exists(Marker)) File.Delete(Marker);
         }
@@ -372,6 +380,7 @@ internal static partial class Program
             Require(Get<IntPtr>(main, "_primaryHandle") == primary, "An unavailable hotkey slot never switches to a different client.");
 
             var second = StartClient();
+            _ = NativeMethods.GetWindowRect(second.Handle, out var secondOriginalBounds);
             Wait(() => WindowNumber(main, second.Handle) == 2, "Second client is discovered.");
             Call(main, "FocusSeat", 1);
             Wait(() => GameEmbedder.IsAttached(second.Handle, host.HostHandle), "Selecting slot 2 swaps it into the real host.");
@@ -400,7 +409,8 @@ internal static partial class Program
             main.DisconnectWindow(second);
             Require(!GameEmbedder.IsAttached(second.Handle, host.HostHandle) && !GameEmbedder.HeldHandles.Contains(second.Handle), "Detach returns the client to the desktop.");
             _ = NativeMethods.GetWindowRect(second.Handle, out var restored);
-            Require(Math.Abs(restored.Left - 40) <= 12 && Math.Abs(restored.Top - 40) <= 12, "Detach restores the client's original desktop position.");
+            Require(Math.Abs(restored.Left - secondOriginalBounds.Left) <= 12 && Math.Abs(restored.Top - secondOriginalBounds.Top) <= 12,
+                "Detach restores the client's original desktop position at the current DPI.");
             Call(main, "RefreshStatus");
             Require(!ReadSeats(main).Any(window => window.Handle == second.Handle), "Detached client is excluded from automatic reconnection.");
 
@@ -477,6 +487,8 @@ internal static partial class Program
                 }
                 if (message == 0x100)
                     File.WriteAllText(Path.Combine(AppContext.BaseDirectory, $"client-{Environment.ProcessId}.key"), wparam.ToInt64().ToString());
+                if (message == 0x102)
+                    File.AppendAllText(Path.Combine(AppContext.BaseDirectory, $"client-{Environment.ProcessId}.text"), ((char)wparam.ToInt32()).ToString());
                 return IntPtr.Zero;
             });
         };

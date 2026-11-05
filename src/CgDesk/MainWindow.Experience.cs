@@ -35,7 +35,7 @@ public partial class MainWindow
         }
         // The source must stay behind the desk; input goes through the rendered host.
         Activate();
-        if (_mainHost != null) System.Windows.Input.Keyboard.Focus(_mainHost);
+        _mainHost?.FocusInput();
         GameEmbedder.NudgeActive(_primaryHandle);
     }
 

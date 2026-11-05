@@ -12,10 +12,35 @@ internal sealed class GameHost : HwndHost
     private IntPtr _handle;
     private IntPtr _oldProc;
     private HostWndProc? _proc;
+    private bool _imeComposing;
+    private IntPtr _keyTarget;
 
     public IntPtr HostHandle => _handle;
 
-    public IntPtr KeyTarget { get; set; }
+    public IntPtr KeyTarget
+    {
+        get => _keyTarget;
+        set
+        {
+            if (_keyTarget == value) return;
+            // Never deliver a composition started in one client to another client.
+            var context = ImmGetContext(_handle);
+            if (context != IntPtr.Zero)
+            {
+                _ = ImmNotifyIME(context, 0x0015, 0x0004, 0); // CPS_CANCEL
+                _ = ImmReleaseContext(_handle, context);
+            }
+            _imeComposing = false;
+            _keyTarget = value;
+        }
+    }
+
+    public void FocusInput()
+    {
+        System.Windows.Input.Keyboard.Focus(this);
+        // WPF logical focus alone leaves the native IME attached to the desk window.
+        if (_handle != IntPtr.Zero) _ = SetFocus(_handle);
+    }
 
     public event Action? Clicked;
 
@@ -35,11 +60,19 @@ internal sealed class GameHost : HwndHost
 
     private bool ForwardKeyboard(MSG msg)
     {
+        // HwndHost can be offered messages for other native windows on this thread.
+        // Only relay our own input, otherwise a delivered character can loop back.
+        if (msg.hwnd != _handle) return false;
+        if (IsImeKey(msg.message, msg.wParam)) return false;
         if (msg.message is not (0x0100 or 0x0101 or 0x0102 or 0x0104 or 0x0105 or 0x0106)
             || KeyTarget == IntPtr.Zero || !NativeMethods.IsWindow(KeyTarget)) return false;
-        _ = PostMessage(KeyTarget, (uint)msg.message, msg.wParam, msg.lParam);
+        _ = PostMessageW(KeyTarget, (uint)msg.message, msg.wParam, msg.lParam);
         return true;
     }
+
+    private bool IsImeKey(int message, IntPtr key) =>
+        message is 0x0100 or 0x0101 or 0x0104 or 0x0105
+        && (_imeComposing || key == new IntPtr(0xE5)); // VK_PROCESSKEY belongs to the IME.
 
     protected override HandleRef BuildWindowCore(HandleRef parent)
     {
@@ -60,6 +93,7 @@ internal sealed class GameHost : HwndHost
             IntPtr.Zero);
         _proc = OnHostMessage;
         _oldProc = SetWindowLongPtr(_handle, WndProcIndex, Marshal.GetFunctionPointerForDelegate(_proc));
+        _ = ImmAssociateContextEx(_handle, IntPtr.Zero, 0x0010); // IACE_DEFAULT
         return new HandleRef(this, _handle);
     }
 
@@ -81,6 +115,27 @@ internal sealed class GameHost : HwndHost
 
     private IntPtr OnHostMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
+        if (msg == 0x010D) // WM_IME_STARTCOMPOSITION
+        {
+            _imeComposing = true;
+            var context = ImmGetContext(hwnd);
+            if (context != IntPtr.Zero)
+            {
+                GetClientRect(hwnd, out var client);
+                var composition = new CompositionForm { Style = 2, X = 12, Y = Math.Max(0, client.Bottom - 32) };
+                _ = ImmSetCompositionWindow(context, ref composition);
+                _ = ImmReleaseContext(hwnd, context);
+            }
+        }
+        if (msg == 0x010E) _imeComposing = false; // WM_IME_ENDCOMPOSITION
+        // Let DefWindowProc process WM_IME_COMPOSITION using this window's own
+        // input context. Forward only committed text, never cross-process HIMCs.
+        if (msg == 0x0286 && KeyTarget != IntPtr.Zero && NativeMethods.IsWindow(KeyTarget))
+        {
+            _ = PostMessageW(KeyTarget, 0x0102, wParam, lParam);
+            return IntPtr.Zero;
+        }
+
         if (msg == 0x0014 && _darkBrush != IntPtr.Zero)
         {
             GetClientRect(hwnd, out var rect);
@@ -93,7 +148,8 @@ internal sealed class GameHost : HwndHost
             Clicked?.Invoke();
         }
 
-        if (msg is 0x0100 or 0x0101 or 0x0102 or 0x0104 or 0x0105 or 0x0106)
+        if (msg is 0x0100 or 0x0101 or 0x0102 or 0x0104 or 0x0105 or 0x0106
+            && !IsImeKey((int)msg, wParam))
         {
             var child = KeyTarget;
             if (child == IntPtr.Zero || !NativeMethods.IsWindow(child))
@@ -103,7 +159,7 @@ internal sealed class GameHost : HwndHost
 
             if (child != IntPtr.Zero)
             {
-                _ = PostMessage(child, msg, wParam, lParam);
+                _ = PostMessageW(child, msg, wParam, lParam);
                 return IntPtr.Zero;
             }
         }
@@ -172,8 +228,35 @@ internal sealed class GameHost : HwndHost
     [DllImport("user32.dll")]
     private static extern IntPtr GetWindow(IntPtr hwnd, uint command);
 
+    // Explicit Unicode entry point also converts committed text for ANSI games.
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool PostMessageW(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
+
     [DllImport("user32.dll")]
-    private static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
+    private static extern IntPtr SetFocus(IntPtr hwnd);
+
+    [DllImport("imm32.dll")]
+    private static extern bool ImmAssociateContextEx(IntPtr hwnd, IntPtr context, uint flags);
+
+    [DllImport("imm32.dll")]
+    private static extern IntPtr ImmGetContext(IntPtr hwnd);
+
+    [DllImport("imm32.dll")]
+    private static extern bool ImmReleaseContext(IntPtr hwnd, IntPtr context);
+
+    [DllImport("imm32.dll")]
+    private static extern bool ImmNotifyIME(IntPtr context, uint action, uint index, uint value);
+
+    [DllImport("imm32.dll")]
+    private static extern bool ImmSetCompositionWindow(IntPtr context, ref CompositionForm form);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CompositionForm
+    {
+        public uint Style;
+        public int X, Y;
+        public RectNative Area;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct RectNative

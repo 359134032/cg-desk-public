@@ -65,6 +65,8 @@ dotnet build src/CgDesk/CgDesk.csproj -c Release
 
 开启增强时，游戏源窗口保持在控制台后方，主区域呈现 FSR 处理后的画面；关闭增强后恢复原生嵌入。底部会显示实际输入、输出分辨率，例如 `800×600 → 1280×960`，便于确认是否真正放大。诊断信息包含实际渲染帧数。
 
+0.1.10 补充增强模式下的中文输入支持：点击游戏画面后可使用中文输入法组词、选字和提交。切换客户端时取消尚未确认的组词，避免把文字提交到另一窗口。实际输入效果仍需结合游戏和所用输入法确认。
+
 「锐化强度」只调节锐度，不改变这块矩形的大小；值过高可能产生白边。采集不到画面时，主窗口保持原来的 800×600，状态栏会注明增强尚未生效。
 
 增强文件放在 `%LocalAppData%\CgDesk\enhance`。程序会把画质入口、注入器和随包的画质组件复制到这里：
@@ -98,7 +100,7 @@ dotnet run --project tests/CgDesk.Regression/CgDesk.Regression.csproj -c Release
 ```powershell
 dotnet run --project tests/CgDesk.Regression/CgDesk.Regression.csproj -c Release -- --stress-layout --enforce-clipping
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-SourcePrivacy.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-SourcePrivacy.ps1 -PackagePath release/CgDesk-0.1.9-win-x64.zip
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-SourcePrivacy.ps1 -PackagePath release/CgDesk-0.1.10-win-x64.zip
 ```
 
 详见[首发验收说明](docs/reports/release-0.1.7.md)。当前分发目标为 Windows x64，不能仅凭编译目标认定所有 Windows 10 版本受支持。

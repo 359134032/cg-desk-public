@@ -71,6 +71,11 @@ public partial class MainWindow : Window
         _mainHost = new GameHost();
         _mainHost.Clicked += () =>
         {
+            if (UseCapturedMain)
+            {
+                _mainHost.FocusInput();
+                return;
+            }
             if (!ReferenceEquals(Keyboard.FocusedElement, _mainHost))
             {
                 Keyboard.Focus(_mainHost);
@@ -2136,6 +2141,10 @@ public partial class MainWindow : Window
         {
             return IntPtr.Zero;
         }
+
+        // The IME must see VK_PROCESSKEY before any ordinary key forwarding.
+        if (wParam == new IntPtr(0xE5) && msg is 0x0100 or 0x0101)
+            return IntPtr.Zero;
 
         _ = PostMessage(_primaryHandle, (uint)msg, wParam, lParam);
         handled = true;
