@@ -31,8 +31,15 @@ internal sealed class ViewportLaunchFiles
         });
     }
 
-    internal string Prepare(string client, LaunchResolution resolution)
+    internal string Prepare(string client, LaunchResolution resolution, string? diagnosticPath = null)
     {
+        if (diagnosticPath != null)
+        {
+            if (!Path.IsPathFullyQualified(diagnosticPath) || diagnosticPath.IndexOfAny(['\r','\n']) >= 0
+                || Path.GetFileName(diagnosticPath) != "cgdesk-graphics-state.jsonl")
+                throw new InvalidOperationException("诊断日志必须是本地绝对路径，文件名为 cgdesk-graphics-state.jsonl。");
+            diagnosticPath = Path.GetFullPath(diagnosticPath);
+        }
         if (string.IsNullOrWhiteSpace(client) || !File.Exists(client))
         {
             if (resolution.Native) return "使用游戏原生设置。";
@@ -57,7 +64,10 @@ internal sealed class ViewportLaunchFiles
                 throw new InvalidOperationException("实验组件校验失败，请重新解压完整的窗口台程序包。");
             desired[Names[0]] = proxy;
             desired[Names[1]] = File.ReadAllBytes(_system);
-            desired[Names[2]] = Encoding.ASCII.GetBytes($"; CgDeskViewportLaunch-v1\r\n[Viewport]\r\nWidth={resolution.Width}\r\nHeight={resolution.Height}\r\n");
+            var diagnostic = diagnosticPath == null ? "" : $"DiagnosticPath={diagnosticPath}\r\n";
+            var ini = $"; CgDeskViewportLaunch-v1\r\n[Viewport]\r\nWidth={resolution.Width}\r\nHeight={resolution.Height}\r\n{diagnostic}";
+            desired[Names[2]] = diagnosticPath == null ? Encoding.ASCII.GetBytes(ini)
+                : Encoding.Unicode.GetPreamble().Concat(Encoding.Unicode.GetBytes(ini)).ToArray();
             foreach (var name in Names)
                 if (File.Exists(Path.Combine(directory, name)) && (owned == null || !owned.ContainsKey(name)))
                     throw new InvalidOperationException($"客户端目录已有其他 {name}，窗口台不会覆盖。");

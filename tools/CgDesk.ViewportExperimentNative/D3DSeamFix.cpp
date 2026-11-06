@@ -120,6 +120,12 @@ constexpr unsigned RecordLimit = 128;
 volatile LONG installedDraw = 0, installedD3D = 0, installedDevice = 0, installFailures = 0;
 volatile LONG drawCalls = 0, callerMatches = 0, correctedQuads = 0, correctedX = 0, correctedY = 0;
 volatile LONG retiredRecords = 0, retainedRecords = 0;
+PVOID volatile drawObserver = nullptr;
+HRESULT ObservedDraw(HRESULT result) noexcept {
+    auto observer=reinterpret_cast<void (*)(int32_t)>(InterlockedCompareExchangePointer(&drawObserver,nullptr,nullptr));
+    if(observer)observer(result);
+    return result;
+}
 using QueryFn = HRESULT (WINAPI*)(void*, REFIID, void**);
 using ReleaseFn = ULONG (WINAPI*)(void*);
 using CreateDeviceFn = HRESULT (WINAPI*)(void*, REFCLSID, IDirectDrawSurface7*, IDirect3DDevice7**);
@@ -298,11 +304,11 @@ __declspec(noinline) HRESULT WINAPI DrawHook(void* object, D3DPRIMITIVETYPE prim
             if (corrected[1].x > copied[1].x) InterlockedIncrement(&correctedX);
             if (corrected[3].y > copied[3].y) InterlockedIncrement(&correctedY);
             void** original = *static_cast<void***>(r->originalObject);
-            return reinterpret_cast<DrawFn>(original[25])(r->originalObject, primitive, fvf, corrected, count, flags);
+            return ObservedDraw(reinterpret_cast<DrawFn>(original[25])(r->originalObject, primitive, fvf, corrected, count, flags));
         }
     }
     void** original = *static_cast<void***>(r->originalObject);
-    return reinterpret_cast<DrawFn>(original[25])(r->originalObject, primitive, fvf, vertices, count, flags);
+    return ObservedDraw(reinterpret_cast<DrawFn>(original[25])(r->originalObject, primitive, fvf, vertices, count, flags));
 }
 }
 
@@ -316,6 +322,10 @@ bool InstallD3DSeamFix(void** ddraw7) noexcept {
         return false;
     }
     return true;
+}
+
+void SetD3DDrawObserver(void (*observer)(int32_t)) noexcept {
+    InterlockedExchangePointer(&drawObserver,reinterpret_cast<void*>(observer));
 }
 
 D3DSeamFixStatus GetD3DSeamFixStatus() noexcept {

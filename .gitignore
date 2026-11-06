@@ -9,3 +9,5 @@ TestResults/
 /artifacts/
 *.dpapi
 *.p8
+__pycache__/
+*.pyc

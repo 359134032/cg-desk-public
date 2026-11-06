@@ -25,8 +25,9 @@ dotnet build src/CgDesk/CgDesk.csproj -c Release
 - 改变实验档位、停用实验或升级组件前需要退出游戏；相同组件和相同档位可以继续启动其他客户端。选择原生设置再启动，会撤下校验通过的自有组件。
 - 游戏出现后，窗口台按实际客户区大小自动调整，并限制在当前显示器工作区。再次拖动或最大化窗口后，原生绘制尺寸保持启动档位，显示使用 FSR 等比缩放；上限不随窗口增大而突破。显示区域始终按 4:3 居中，余下留边，避免变形。放大使用 EASU+RCAS，缩小使用线性采样+RCAS。采集失败会恢复可操作的原生窗口。
 - 分辨率扩大不保证服务端会下发更远的角色。本版没有修改服务器、网络协议或资源刷新半径。
+- 部分外围 NPC、路灯靠近才出现的问题尚未解决。已核对本地地图生成及实体显示路径，尚无证据支持可安全部署的统一提前刷新补丁，不能把所有此类现象归因于服务器。
 
-0.1.13 默认启用分辨率实验，保留启动前的风险确认。已删除旧画质增强开关、锐化界面、增强注入器、无效资源半径改动和旧试验部署/进程探测工具。保留外部窗口采集和 FSR 缩放；缩小后为避免源窗口露出，会把采集源放到屏幕边缘外、保留 1 像素以持续绘制。此前 0.1.12 的本机游戏测试正常。
+0.1.14 修复大于 1023 像素高度时转场特效数组重叠造成的传送后整屏花屏。1600×1200 同地图传送石连续复测已获用户确认不再花屏。实验默认开启、启动前风险确认及 FSR 缩放保持原行为；原 EXE 和资源文件不改写。旧画质增强开关、锐化界面、增强注入器、无效资源半径改动和旧试验部署/进程探测工具已清理。缩小后为避免源窗口露出，会把采集源放到屏幕边缘外、保留 1 像素以持续绘制。
 
 ## 窗口操作
 
@@ -61,6 +62,7 @@ FSR 采集测试需要正常 Windows 桌面；沙箱隔离桌面会使系统采�
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/CgDesk.ViewportExperimentNative/Build.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/CgDesk.ViewportExperimentNative/Test-Smoke.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/CgDesk.ViewportExperimentNative/Test-MapCache.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/CgDesk.ViewportExperimentNative/Test-TransitionBuffers.ps1
 ```
 
 构建脚本会校验本机分析证据并更新随包 DLL 和哈希清单，不安装到游戏目录。未持有本机分析证据时不要重新生成该版本绑定组件。历史实验报告保留在 docs/reports，不能作为本次启动器集成的实机验收。

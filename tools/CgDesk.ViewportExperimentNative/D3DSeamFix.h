@@ -31,3 +31,4 @@ struct D3DSeamFixStatus {
 // No game code pages or global sampler state are modified. Maximum 128 records.
 bool InstallD3DSeamFix(void** ddraw7) noexcept;
 D3DSeamFixStatus GetD3DSeamFixStatus() noexcept;
+void SetD3DDrawObserver(void (*observer)(int32_t)) noexcept;

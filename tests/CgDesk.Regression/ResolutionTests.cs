@@ -69,6 +69,12 @@ internal static partial class Program
                 clientHash:Convert.ToHexString(SHA256.HashData(before)).ToLowerInvariant(), running:() => running);
             files.Prepare(client,new(1024,768));
             var profile = Path.Combine(folder,"cgdesk_viewport.ini");
+            var diagnosticLog = Path.Combine(folder,"cgdesk-graphics-state.jsonl");
+            files.Prepare(client,new(1024,768),diagnosticLog);
+            Require(File.ReadAllText(profile).Contains("DiagnosticPath=" + diagnosticLog) && !File.Exists(diagnosticLog),
+                "Explicit diagnostics configure a local log without installing or writing client resources.");
+            files.Prepare(client,new(1024,768));
+            Require(!File.ReadAllText(profile).Contains("DiagnosticPath="), "Normal launch leaves graphics diagnostics disabled.");
             var originalProfile = File.ReadAllText(profile);
             Require(originalProfile.Contains("Width=1024") && originalProfile.Contains("Height=768"), "Launch writes the selected size to its own component profile.");
             Require(File.ReadAllBytes(client).SequenceEqual(before) && File.ReadAllBytes(resource).SequenceEqual(resourceBefore), "Installation leaves the original EXE and resource bytes unchanged.");

@@ -9,6 +9,8 @@
 #include "ProfileSignatures.h"
 #include "D3DSeamFix.h"
 #include "MapCacheFix.h"
+#include "GraphicsDiagnostics.h"
+#include "TransitionBufferFix.h"
 
 #pragma intrinsic(_ReturnAddress)
 static_assert(sizeof(void*) == 4, "The experiment must be built for x86.");
@@ -16,6 +18,7 @@ extern "C" __declspec(dllexport) const char CgDeskViewportBuildMarker[] = "CgDes
 
 namespace {
 LONG Width = 0, Height = 0;
+wchar_t diagnosticPath[32768]{};
 bool ReadRequestedSize() {
     HMODULE self = nullptr;
     wchar_t path[32768];
@@ -28,6 +31,7 @@ bool ReadRequestedSize() {
     wcscpy_s(leaf, ARRAYSIZE(path) - static_cast<SIZE_T>(leaf - path), L"\\cgdesk_viewport.ini");
     Width = static_cast<LONG>(GetPrivateProfileIntW(L"Viewport", L"Width", 0, path));
     Height = static_cast<LONG>(GetPrivateProfileIntW(L"Viewport", L"Height", 0, path));
+    GetPrivateProfileStringW(L"Viewport",L"DiagnosticPath",L"",diagnosticPath,ARRAYSIZE(diagnosticPath),path);
     return Width >= 640 && Height >= 480 && Width <= 1600 && Height <= 1200 &&
         3 * Width == 4 * Height;
 }
@@ -83,7 +87,8 @@ struct Snapshot {
 
 bool Rollback(Snapshot* snapshot) {
     InterlockedExchange(&status.RollbackAttempted, 1);
-    bool restored = RollbackMapCacheFix();
+    bool restored = RollbackTransitionBufferFix();
+    if(!RollbackMapCacheFix())restored=false;
     __try {
         for (unsigned i = 0; i < ARRAYSIZE(snapshot->addresses); ++i) {
             if (!Accessible(snapshot->addresses[i], sizeof(DWORD), true)) { restored = false; continue; }
@@ -131,6 +136,7 @@ void TryApplyProfile(void* returnAddress, void** output) {
             }
         }
         if (NeedsExpandedCache() && !ValidateMapCacheFix()) { guard = GuardMapCache; __leave; }
+        if (Height > 1023 && !ValidateTransitionBufferFix()) { guard = GuardTransitionBuffers; __leave; }
         if (!Accessible(Windowed, sizeof(DWORD), false) || *reinterpret_cast<DWORD*>(Windowed) != 1) { guard = GuardNotWindowed; __leave; }
         if (!Accessible(GameWindow, sizeof(HWND), false)) { guard = GuardInvalidWindow; __leave; }
         snapshot.window = *reinterpret_cast<HWND*>(GameWindow);
@@ -193,9 +199,11 @@ void TryApplyProfile(void* returnAddress, void** output) {
         }
         RECT client{};
         if (!GetClientRect(snapshot.window, &client) || client.right != Width || client.bottom != Height) { guard = GuardWindowGeometry; __leave; }
+        if (Height > 1023 && !ApplyTransitionBufferFix()) { guard = GuardTransitionBuffers; __leave; }
         if (NeedsExpandedCache() && !ApplyMapCacheFix()) { guard = GuardMapCache; __leave; }
         InterlockedExchange(&status.Applied, 1);
         InterlockedExchange(&applyState, 2);
+        if(diagnosticPath[0])StartGraphicsDiagnostics(diagnosticPath);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         status.LastException = GetExceptionCode();
         guard = GuardException;
@@ -245,7 +253,7 @@ extern "C" HRESULT WINAPI CgDeskDirectDrawCreateEx(GUID* guid, void** output, RE
         return E_FAIL;
     }
     TryApplyProfile(_ReturnAddress(), output);
-    if (!GetMapCacheDiagnostics().ProtectionRestored ||
+    if (!GraphicsDiagnosticsHealthy() || !TransitionBufferFixHealthy() || !GetMapCacheDiagnostics().ProtectionRestored ||
         (status.RollbackAttempted && !status.RollbackSucceeded)) {
         status.LastForwardResult = E_FAIL;
         return E_FAIL;
