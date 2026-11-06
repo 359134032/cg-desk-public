@@ -21,10 +21,11 @@ function Test-Text([string]$Text, [string]$Location, [string]$Scope) {
         foreach ($match in [regex]::Matches($Text, $rule.Value)) {
             if ($rule.Key -eq 'personal-path' -and [IO.Path]::GetExtension($Location) -in @('.dll', '.exe', '.pdb')) {
                 # Arbitrary PE/resource bytes can resemble a drive prefix. A
-                # binary path finding must also contain a readable path component.
+                # binary path finding must contain a readable component followed
+                # by a path separator or text terminator, not an IL control byte.
                 # Text-source rules remain unchanged, including bare drive roots.
                 $tail = $Text.Substring($match.Index, [Math]::Min(512, $Text.Length - $match.Index))
-                if ($match.Value -match '^[A-Za-z]:[\\/]' -and $tail -notmatch '^[A-Za-z]:[\\/][\p{L}\p{N}_ .()@+\-\[\]]{2,}') { continue }
+                if ($match.Value -match '^[A-Za-z]:[\\/]' -and $tail -notmatch '^[A-Za-z]:[\\/][\p{L}\p{N}_ .()@+\-\[\]]{2,}(?:[\\/]|\x00|\r|\n|["''])') { continue }
             }
             $line = 1 + ([regex]::Matches($Text.Substring(0, $match.Index), "`n")).Count
             # Never emit the matching value, including when a real credential is found.
