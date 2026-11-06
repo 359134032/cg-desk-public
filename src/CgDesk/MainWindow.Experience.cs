@@ -22,18 +22,12 @@ public partial class MainWindow
     private readonly Dictionary<IntPtr, string> _windowLabels = [];
     private string _connectionError = "";
     private bool _waitingForGame;
-    private bool UseCapturedMain => _config.EnhanceMainWindow && !FsrSurface.Failed && !_docked;
-    private bool IsMainConnected => _mainHost != null &&
-        (GameEmbedder.IsAttached(_primaryHandle, _mainHost.HostHandle) || UseCapturedMain && GameEmbedder.IsReady(_primaryHandle));
+    private bool IsMainConnected => _mainHost != null && (GameEmbedder.IsAttached(_primaryHandle, _mainHost.HostHandle)
+        || UseCapturedMain && GameEmbedder.IsReady(_primaryHandle));
 
     private void FocusPrimaryInput()
     {
-        if (!UseCapturedMain)
-        {
-            GameEmbedder.Focus(_primaryHandle);
-            return;
-        }
-        // The source must stay behind the desk; input goes through the rendered host.
+        if (!UseCapturedMain) { GameEmbedder.Focus(_primaryHandle); return; }
         Activate();
         _mainHost?.FocusInput();
         GameEmbedder.NudgeActive(_primaryHandle);
@@ -87,13 +81,10 @@ public partial class MainWindow
             : attached ? $"已接入 · {seats.Count} 个窗口 · 当前 {WindowNumber(_primaryHandle)} 号"
             : $"已识别 {seats.Count} 个窗口 · 正在接入";
         if (active != null && attached) ConnectionStateText.ToolTip = WindowLabel(active);
-        EnhanceStateText.Text = !_config.EnhanceMainWindow ? "画质增强已关闭"
-            : !hasWindows ? "增强已开启 · 等待游戏"
-            : _docked ? "增强已暂停 · 迷你模式"
-            : FsrSurface.Failed ? "增强未生效 · 使用原始画面"
-            : FsrSurface.IsPresenting ? $"FSR 已生效 · {FsrSurface.SourceSize.Width}×{FsrSurface.SourceSize.Height} → {FsrSurface.OutputSize.Width}×{FsrSurface.OutputSize.Height}"
-            : attached ? "增强准备中 · 当前为原始画面" : "增强等待接入";
-        EnhanceStateText.ToolTip = FsrSurface.Failed ? FsrSurface.LastError : "锐化仅作用于主窗口，其他客户端保持原始画面。";
+        var size = ShownGameSize();
+        ResolutionStateText.Text = !hasWindows ? "等待游戏分辨率" : UseCapturedMain && FsrSurface.IsPresenting
+            ? $"绘制 {size.Width}×{size.Height} · FSR {_presentedSize.Width}×{_presentedSize.Height} · 4:3"
+            : $"游戏画面 {size.Width}×{size.Height} · 4:3";
         if (!hasWindows || attached || _docked) SetConnectionError("");
     }
 
@@ -238,15 +229,13 @@ public partial class MainWindow
             report.AppendLine($"魔力窗口台 {Assembly.GetExecutingAssembly().GetName().Version}");
             report.AppendLine($"系统：{Environment.OSVersion}；进程：{Environment.ProcessId}；64 位：{Environment.Is64BitProcess}");
             report.AppendLine($"接入状态：{ConnectionStateText.Text}");
-            report.AppendLine($"画质状态：{EnhanceStateText.Text}");
+            report.AppendLine($"分辨率：{ResolutionStateText.Text}");
             report.AppendLine($"接入错误：{_connectionError}");
-            report.AppendLine($"增强错误：{FsrSurface.LastError}");
-            report.AppendLine($"FSR 已渲染帧：{FsrSurface.RenderedFrames}；输入：{FsrSurface.SourceSize}；输出：{FsrSurface.OutputSize}");
             report.AppendLine($"主区域：{MainViewport.ActualWidth:0} × {MainViewport.ActualHeight:0}；迷你模式：{_docked}");
             foreach (var window in Seats())
             {
                 var parent = _mainHost != null && GameEmbedder.IsAttached(window.Handle, _mainHost.HostHandle);
-                report.AppendLine($"窗口 {WindowNumber(window.Handle)}：{window.ProcessName}.exe；PID {window.ProcessId}；HWND {window.Handle:X}；原生嵌入：{parent}；顶层采集源：{UseCapturedMain && window.Handle == _primaryHandle && GameEmbedder.IsReady(window.Handle)}");
+                report.AppendLine($"窗口 {WindowNumber(window.Handle)}：{window.ProcessName}.exe；PID {window.ProcessId}；HWND {window.Handle:X}；原生嵌入：{parent}");
             }
             System.Windows.Clipboard.SetText(report.ToString());
             SetStatus("诊断信息已复制，可粘贴用于排查。内容包含进程信息，不包含账号密码。");

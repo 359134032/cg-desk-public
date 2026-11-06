@@ -178,7 +178,7 @@ internal static partial class Program
         }
 
         var uiHandler = new UpdateHandler((_, _) => Task.FromResult(Response(signed)));
-        var main = new MainWindow(new AppConfig { HotkeysEnabled = false, UpdateManifestUrl = primary }, initializeEnhancement: false,
+        var main = new MainWindow(new AppConfig { HotkeysEnabled = false, UpdateManifestUrl = primary },
             windowFilter: _ => false, persistConfiguration: false, updateService: new UpdateService(uiHandler, keys));
         app.MainWindow = main; Field(main, "_guideStarted", true);
         try
@@ -198,7 +198,7 @@ internal static partial class Program
         }
         finally { CloseDesk(main); }
 
-        var limitedMain = new MainWindow(new AppConfig { HotkeysEnabled = false, UpdateManifestUrl = githubPage, UpdateChannel = "beta" }, initializeEnhancement: false,
+        var limitedMain = new MainWindow(new AppConfig { HotkeysEnabled = false, UpdateManifestUrl = githubPage, UpdateChannel = "beta" },
             windowFilter: _ => false, persistConfiguration: false, updateService: new UpdateService(new UpdateHandler((_, _) => Task.FromResult(Limited())), keys));
         app.MainWindow = limitedMain; Field(limitedMain, "_guideStarted", true);
         try
@@ -211,7 +211,7 @@ internal static partial class Program
         }
         finally { CloseDesk(limitedMain); }
 
-        var closingMain = new MainWindow(new AppConfig { HotkeysEnabled = false, UpdateManifestUrl = primary }, initializeEnhancement: false,
+        var closingMain = new MainWindow(new AppConfig { HotkeysEnabled = false, UpdateManifestUrl = primary },
             windowFilter: _ => false, persistConfiguration: false, updateService: new UpdateService(new UpdateHandler(async (_, cancel) =>
             { await Task.Delay(Timeout.Infinite, cancel); return Response([]); }), keys));
         app.MainWindow = closingMain; Field(closingMain, "_guideStarted", true);

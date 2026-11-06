@@ -55,8 +55,8 @@
             <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <ToggleButton x:Name="SettingsToggle" Grid.Column="1" Style="{StaticResource SettingsButton}" Margin="14,0,0,0"
-                              VerticalAlignment="Top" Click="Settings_Click" AutomationProperties.Name="设置与画质"
-                              ToolTip="登录器、画质增强、主题、热键与关闭行为">
+                              VerticalAlignment="Top" Click="Settings_Click" AutomationProperties.Name="启动与窗口设置"
+                              ToolTip="登录器、分辨率、主题、热键与关闭行为">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" Foreground="{DynamicResource GoldBrush}" VerticalAlignment="Center" Margin="0,0,7,0"/>
                         <TextBlock Text="设置" VerticalAlignment="Center"/>
@@ -88,11 +88,15 @@
                     <Button Content="更换登录器…" Click="BrowseLauncher_Click" HorizontalAlignment="Left"/>
                     <TextBlock Text="账号密码在官方登录器中输入。" TextWrapping="Wrap" Margin="0,8,0,18" Foreground="{DynamicResource MutedBrush}"/>
                     <TextBlock Text="画面" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <CheckBox x:Name="EnhanceBox" Content="画质增强" Style="{StaticResource Switch}" Margin="0,6" Checked="EnhanceBox_Changed" Unchecked="EnhanceBox_Changed"/>
-                    <TextBlock x:Name="SharpnessLabel" Text="锐化强度 70%" Margin="0,8,0,4" Foreground="{DynamicResource MutedBrush}"/>
-                    <Slider x:Name="SharpnessSlider" Minimum="0" Maximum="1" Value="0.7" TickFrequency="0.05" IsSnapToTickEnabled="True"
-                            SmallChange="0.05" LargeChange="0.1" ValueChanged="SharpnessSlider_Changed" IsEnabled="{Binding IsChecked, ElementName=EnhanceBox}"
-                            ToolTip="调节边缘锐化，数值过高可能产生白边；不改变游戏分辨率。"/>
+                    <TextBlock Text="启动分辨率" Foreground="{DynamicResource MutedBrush}" Margin="0,6,0,4"/>
+                    <ComboBox x:Name="ResolutionBox" SelectionChanged="Resolution_Changed" DropDownOpened="Resolution_DropDownOpened">
+                        <ComboBox.ItemContainerStyle>
+                            <Style TargetType="ComboBoxItem">
+                                <Setter Property="ToolTip" Value="{Binding Description}"/>
+                            </Style>
+                        </ComboBox.ItemContainerStyle>
+                    </ComboBox>
+                    <TextBlock x:Name="ResolutionHintText" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,6,0,4"/>
                     <CheckBox x:Name="LiveSmallBox" Content="实时预览" Style="{StaticResource Switch}" Margin="0,12,0,6" Checked="LiveSmallBox_Changed" Unchecked="LiveSmallBox_Changed" ToolTip="关闭后，其他窗口的预览停在当前帧"/>
                     <CheckBox x:Name="DarkBox" Content="深色模式" Style="{StaticResource Switch}" Margin="0,6,0,18" Checked="DarkBox_Changed" Unchecked="DarkBox_Changed"/>
                     <TextBlock Text="快捷键" FontWeight="SemiBold" Margin="0,0,0,4"/>
@@ -187,7 +191,7 @@
                 </Border>
                 <WrapPanel>
                     <TextBlock x:Name="ConnectionStateText" Text="等待游戏窗口" FontWeight="SemiBold" Margin="0,0,18,0"/>
-                    <TextBlock x:Name="EnhanceStateText" Text="画质增强已关闭" Foreground="{DynamicResource MutedBrush}" Margin="0,0,18,0"/>
+                    <TextBlock x:Name="ResolutionStateText" Text="等待游戏分辨率" Foreground="{DynamicResource MutedBrush}" Margin="0,0,18,0"/>
                     <TextBlock x:Name="HotkeyStateText" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"/>
                 </WrapPanel>
                 <TextBlock x:Name="StatusText" Text="选择登录器，或手动接入桌面上的游戏窗口。" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,0"/>

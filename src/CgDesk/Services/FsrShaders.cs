@@ -20,6 +20,7 @@ internal static class FsrShaders
     public static byte[] VertexBytecode { get; private set; } = [];
     public static byte[] EasuBytecode { get; private set; } = [];
     public static byte[] RcasBytecode { get; private set; } = [];
+    public static byte[] DownsampleBytecode { get; private set; } = [];
 
     public static void Compile()
     {
@@ -33,6 +34,17 @@ internal static class FsrShaders
         VertexBytecode = CompileSource(Vertex, "FullVS", "vs_5_0");
         EasuBytecode = CompileSource(EasuSource(common, fsr), "EasuPS", "ps_5_0");
         RcasBytecode = CompileSource(RcasSource(common, fsr), "RcasPS", "ps_5_0");
+        DownsampleBytecode = CompileSource("""
+            Texture2D InputTexture : register(t0);
+            SamplerState LinearSampler : register(s0);
+            cbuffer EasuCB : register(b0) { uint4 con0; uint4 con1; uint4 con2; uint4 con3; };
+            float4 DownsamplePS(float4 pos : SV_Position) : SV_Target
+            {
+                float2 sourcePixel = pos.xy * asfloat(con0.xy);
+                float2 uv = sourcePixel * float2(asfloat(con1.x), asfloat(con1.y));
+                return InputTexture.SampleLevel(LinearSampler, uv, 0);
+            }
+            """, "DownsamplePS", "ps_5_0");
     }
 
     static string EasuSource(string common, string fsr)

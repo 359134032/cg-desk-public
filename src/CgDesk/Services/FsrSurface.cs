@@ -57,6 +57,7 @@ internal static class FsrSurface
     static ID3D11VertexShader? _vs;
     static ID3D11PixelShader? _easuPs;
     static ID3D11PixelShader? _rcasPs;
+    static ID3D11PixelShader? _downsamplePs;
     static ID3D11SamplerState? _sampler;
     static IDirect3DDevice? _winrtDevice;
     static GraphicsCaptureItem? _item;
@@ -69,8 +70,6 @@ internal static class FsrSurface
     public static long RenderedFrames => Interlocked.Read(ref _renderedFrames);
     public static (int Width, int Height) SourceSize => (_captureW, _captureH);
     public static (int Width, int Height) OutputSize => (_viewW, _viewH);
-
-    public static void SetSharpness(float value) => _sharpness = Math.Clamp(value, 0f, 1f);
 
     public static void Reset()
     {
@@ -139,7 +138,8 @@ internal static class FsrSurface
                 stage = "创建窗口采集";
                 EnsureCapture(game);
                 stage = "创建输出画面";
-                var size = ClientSize(host);
+                var hostSize = ClientSize(host);
+                var size = LaunchResolutions.FitFourByThree(hostSize.Width, hostSize.Height);
                 if (size.Width >= 8 && size.Height >= 8 && (size.Width != _viewW || size.Height != _viewH || _backRtv == null))
                 {
                     Resize(size.Width, size.Height);
@@ -244,7 +244,7 @@ internal static class FsrSurface
         _context.OMSetRenderTargets(_easuRtv, null);
         _context.PSSetShaderResource(0, source);
         _context.PSSetConstantBuffer(0, _easuCb);
-        _context.PSSetShader(_easuPs, classes, 0);
+        _context.PSSetShader(_viewW >= inputW && _viewH >= inputH ? _easuPs : _downsamplePs, classes, 0);
         _context.Draw(3, 0);
 
         _context.PSSetShaderResource(0, null!);
@@ -375,6 +375,7 @@ internal static class FsrSurface
         _vs = CreateVertex(_device, FsrShaders.VertexBytecode);
         _easuPs = CreatePixel(_device, FsrShaders.EasuBytecode);
         _rcasPs = CreatePixel(_device, FsrShaders.RcasBytecode);
+        _downsamplePs = CreatePixel(_device, FsrShaders.DownsampleBytecode);
         _easuCb = _device.CreateBuffer(64, BindFlags.ConstantBuffer, ResourceUsage.Dynamic, CpuAccessFlags.Write, ResourceOptionFlags.None, 0);
         _rcasCb = _device.CreateBuffer(32, BindFlags.ConstantBuffer, ResourceUsage.Dynamic, CpuAccessFlags.Write, ResourceOptionFlags.None, 0);
         _sampler = _device.CreateSamplerState(new SamplerDescription
@@ -608,7 +609,9 @@ internal static class FsrSurface
         }
 
         var flags = NoActivate | (_presenting ? ShowFlag : HideFlag);
-        _ = SetWindowPos(_hwnd, IntPtr.Zero, 0, 0, _viewW, _viewH, flags);
+        var hostSize = ClientSize(_host);
+        _ = SetWindowPos(_hwnd, IntPtr.Zero, Math.Max(0, (hostSize.Width - _viewW) / 2),
+            Math.Max(0, (hostSize.Height - _viewH) / 2), _viewW, _viewH, flags);
     }
 
     static void HideWindow()
@@ -686,6 +689,7 @@ internal static class FsrSurface
         _rcasCb?.Dispose();
         _easuPs?.Dispose();
         _rcasPs?.Dispose();
+        _downsamplePs?.Dispose();
         _vs?.Dispose();
         _context?.Dispose();
         _device?.Dispose();
@@ -695,6 +699,7 @@ internal static class FsrSurface
         _rcasCb = null;
         _easuPs = null;
         _rcasPs = null;
+        _downsamplePs = null;
         _vs = null;
         _context = null;
         _device = null;

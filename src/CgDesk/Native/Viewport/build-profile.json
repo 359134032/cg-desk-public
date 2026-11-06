@@ -1,0 +1,121 @@
+{
+  "Profile": "CgDeskViewportLaunch-v1",
+  "Architecture": "x86",
+  "OriginalExecutableSha256": "9baa0d2660f96c6699ccf42ad46bd918717b98ccb228f4edde2d92afb89d3126",
+  "CaptureSha256": "1e7f13e748c792586c7db2eb21d26d19f710bafecea02df6c2d6e44ad136d427",
+  "SystemDirectDrawSha256": "cc8687345e7ac20c2dcd21321634c191a035d145f442d0a403584fd77e72b1a1",
+  "ProxySha256": "fa4f39bbeaf4c2c53543850ce9bcced8d651bd8c287e25711e8907791901ab3e",
+  "SystemExports": [
+    {
+      "Name": "AcquireDDThreadLock",
+      "Ordinal": 1,
+      "LocalWrapper": false
+    },
+    {
+      "Name": "CompleteCreateSysmemSurface",
+      "Ordinal": 2,
+      "LocalWrapper": false
+    },
+    {
+      "Name": "D3DParseUnknownCommand",
+      "Ordinal": 3,
+      "LocalWrapper": false
+    },
+    {
+      "Name": "DDGetAttachedSurfaceLcl",
+      "Ordinal": 4,
+      "LocalWrapper": false
+    },
+    {
+      "Name": "DDInternalLock",
+      "Ordinal": 5,
+      "LocalWrapper": false
+    },
+    {
+      "Name": "DDInternalUnlock",
+      "Ordinal": 6,
+      "LocalWrapper": false
+    },
+    {
+      "Name": "DSoundHelp",
+      "Ordinal": 7,
+      "LocalWrapper": false
+    },
+    {
+      "Name": "DirectDrawCreate",
+      "Ordinal": 8,
+      "LocalWrapper": false
+    },
+    {
+      "Name": "DirectDrawCreateClipper",
+      "Ordinal": 9,
+      "LocalWrapper": false
+    },
+    {
+      "Name": "DirectDrawCreateEx",
+      "Ordinal": 10,
+      "LocalWrapper": true
+    },
+    {
+      "Name": "DirectDrawEnumerateA",
+      "Ordinal": 11,
+      "LocalWrapper": false
+    },
+    {
+      "Name": "DirectDrawEnumerateExA",
+      "Ordinal": 12,
+      "LocalWrapper": false
+    },
+    {
+      "Name": "DirectDrawEnumerateExW",
+      "Ordinal": 13,
+      "LocalWrapper": false
+    },
+    {
+      "Name": "DirectDrawEnumerateW",
+      "Ordinal": 14,
+      "LocalWrapper": false
+    },
+    {
+      "Name": "DllCanUnloadNow",
+      "Ordinal": 15,
+      "LocalWrapper": false
+    },
+    {
+      "Name": "DllGetClassObject",
+      "Ordinal": 16,
+      "LocalWrapper": false
+    },
+    {
+      "Name": "GetDDSurfaceLocal",
+      "Ordinal": 17,
+      "LocalWrapper": false
+    },
+    {
+      "Name": "GetOLEThunkData",
+      "Ordinal": 18,
+      "LocalWrapper": false
+    },
+    {
+      "Name": "GetSurfaceFromDC",
+      "Ordinal": 19,
+      "LocalWrapper": false
+    },
+    {
+      "Name": "RegisterSpecialCase",
+      "Ordinal": 20,
+      "LocalWrapper": false
+    },
+    {
+      "Name": "ReleaseDDThreadLock",
+      "Ordinal": 21,
+      "LocalWrapper": false
+    },
+    {
+      "Name": "SetAppCompatData",
+      "Ordinal": 22,
+      "LocalWrapper": false
+    }
+  ],
+  "RealGameTested": false
+}

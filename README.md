@@ -1,136 +1,68 @@
 # 魔力窗口台
 
-Windows 桌面程序，用来同时照看多个魔力宝贝客户端。游戏从官方登录器进入后，窗口台把主客户端嵌进台面，其余窗口竖排在右侧，并用热键切换。
+Windows 桌面程序。通过官方登录器进入游戏后，自动接入主客户端，其他窗口在右侧预览，并支持热键切换。
 
-## 环境
+## 构建和运行
 
-发布包解压后即可运行。包内带有 .NET 10 桌面运行时、画质组件，以及 WebView2 安装器。双击 `CgDesk.exe` 会直接请求管理员权限。这台电脑如果还没有 WebView2，第一次打开攻略时会自动安装，这一步需要联网。
-
-从源码构建需要 [.NET 10 SDK](https://dotnet.microsoft.com/download)。
-
-## 构建
-
-在仓库根目录执行：
+需要 .NET 10 SDK：
 
 ```powershell
 dotnet build src/CgDesk/CgDesk.csproj -c Release
 ```
 
-程序在 `src/CgDesk/bin/Release/net10.0-windows10.0.19041.0/CgDesk.exe`。构建时会把 `ddraw-proxy.dll`、`enhance-inject.exe` 和 `dgv\ddraw_dgv.dll` 复制到输出目录。
+发布包自带 .NET 桌面运行时，解压后运行 CgDesk.exe。攻略功能使用 WebView2；缺少运行环境时由原有攻略安装流程提示处理。游戏账号密码始终在官方登录器中输入，窗口台不保存密码。
 
-## 使用
+## 启动分辨率
 
-1. 首次打开点「选择登录器并启动」，选择官方登录器。已有路径时，点顶部「启动游戏」。
-2. 在官方登录器中完成登录和角色选择，按官方流程进入游戏，不单独运行客户端 EXE。
-3. 游戏窗口出现后会自动接入主区域。未接入时先点「重新扫描」，仍在桌面上的客户端可通过「接入窗口」手动选择。
-4. 有多个窗口时，小窗竖排在主区域右侧。点小窗，即可和主窗口对调。
+在「设置 → 游戏启动 → 启动分辨率」选择档位，然后点「启动游戏」，仍通过官方登录器正常登录。
 
-密码只在登录器里输入。窗口台的配置不保存密码。
+- 默认开启分辨率实验，选择当前屏幕能容纳的最高 4:3 档位，上限 1600×1200。旧版默认关闭的配置会迁移一次；已有有效手选档位会保留。选择「跟随游戏原生设置（关闭实验）」后会记住关闭选择。
+- 列表按窗口台当前所在显示器的实际分辨率筛选，宽、高均不超过显示器；换屏、屏幕设置改变、展开列表和启动前都会重新校验。
+- 仅提供 4:3：640×480、800×600、1024×768、1152×864、1280×960、1400×1050、1440×1080、1600×1200。最大原生绘制尺寸为 1600×1200；实际可选项还受显示器宽、高限制。1920×1080 屏幕最高提供 1440×1080。
+- 1280×960 及以上档位启用带版本守卫的 64×64 地图缓存，修复只扩大裁剪造成的角落缺图。离线边界检查已通过，1600×1200 地图及 FSR 缩放已获用户本机实测确认。旧 1920×1080 的失败记录保留在 [1080p 验证记录](docs/reports/viewport-1080p-validation-2026-11-06.md)，不提供宽屏档位。
+- 实验只支持已核对的 cg_se_3000.exe 版本。启用前明确提示：独立 DLL 和运行时调整仍可能被检测或被认定为外挂，不能保证账号安全。原 EXE 和资源文件不改写。
+- 实验组件只管理新增的 ddraw.dll、cgdesk_viewport_sys.dll、cgdesk_viewport.ini，以及自己的安装记录。遇到其他同名组件或已变化的文件会停止，不覆盖或删除。
+- 改变实验档位、停用实验或升级组件前需要退出游戏；相同组件和相同档位可以继续启动其他客户端。选择原生设置再启动，会撤下校验通过的自有组件。
+- 游戏出现后，窗口台按实际客户区大小自动调整，并限制在当前显示器工作区。再次拖动或最大化窗口后，原生绘制尺寸保持启动档位，显示使用 FSR 等比缩放；上限不随窗口增大而突破。显示区域始终按 4:3 居中，余下留边，避免变形。放大使用 EASU+RCAS，缩小使用线性采样+RCAS。采集失败会恢复可操作的原生窗口。
+- 分辨率扩大不保证服务端会下发更远的角色。本版没有修改服务器、网络协议或资源刷新半径。
 
-配置写在 `%AppData%\CgDesk\config.json`。设置面板在首次启动时默认展开；旧版升级后也会展开一次，此后记住用户手动收起的选择。工具栏右侧固定显示带齿轮和高亮边框的「设置」按钮，并标明「展开 / 收起」，可随时找回登录器路径、画质、主题和快捷键选项。
+0.1.13 默认启用分辨率实验，保留启动前的风险确认。已删除旧画质增强开关、锐化界面、增强注入器、无效资源半径改动和旧试验部署/进程探测工具。保留外部窗口采集和 FSR 缩放；缩小后为避免源窗口露出，会把采集源放到屏幕边缘外、保留 1 像素以持续绘制。此前 0.1.12 的本机游戏测试正常。
 
-最小化保留在任务栏，关闭按钮默认退出窗口台。可在设置中开启「关闭时收进托盘」，之后左键单击托盘图标即可找回。退出窗口台会将游戏放回桌面，不关闭游戏。
+## 窗口操作
 
-### 窗口
+1. 首次选择官方登录器，后续可点「启动游戏」。客户端出现后自动接入，也可用「接入窗口」手动选择。
+2. 点右侧小窗或用热键切换主客户端。右键可备注或移回桌面并停止自动接入。
+3. 「迷你控制台」将游戏放回桌面；展开后重新接入。「实时预览」控制其他客户端的预览更新。
+4. 关闭窗口台会把游戏放回桌面，不关闭游戏。可以在设置中改为关闭时收进托盘。
 
-- 「重新接入」把当前主窗口重新嵌进台面。
-- 「迷你控制台」把控制台收到左下角，游戏留在桌面上。点预览切换窗口，点「展开控制台」恢复大小并自动接入。
-- 「实时预览」打开后，小窗跟着游戏变化；关掉后停在当前这一帧。
-- 「深色模式」切换界面颜色。选择会记住，攻略网页保留百科自己的颜色。
-- 右键小窗或主画面标题，可以为本次运行的窗口添加备注，或将它移回桌面并停止自动接入。之后可通过「接入窗口」重新接入。
-- 其他客户端关闭时，现有窗口编号保持不变。按不存在的窗口编号不会切换到其他窗口。
-- 底部持续显示已识别窗口数、接入状态和增强是否实际生效。嵌入失败时会显示原因，可复制诊断信息用于排查。
-- 游戏关闭后，窗口台会立即释放自己的鼠标捕获、清空失效的输入目标并恢复指针，无需切出应用；原始画面和 FSR 模式均适用。
-- 主窗口按屏幕可用空间布局。空间不足时游戏区域支持滚动，可收起设置或最大化以增加可见区域。
+默认快捷键为 Ctrl+Alt+1 … 9 切换窗口，Ctrl+Alt+右方向键切换下一个，Ctrl+Alt+0 重新接入。设置中可编辑热键、主题和关闭行为。设置保存在用户 AppData 下的 CgDesk/config.json。
 
-默认热键是 `Ctrl+Alt` 加上数字或右方向键：
+攻略是按需打开的独立窗口，支持搜索、缩放、置顶并保存位置。窗口台支持签名更新清单和手动下载校验；更新源配置、签名和发布流程见 [更新发布文档](docs/update-publishing.md) 与 [更新源设计](docs/update-source-design.md)。不会自动替换正在运行的程序或关闭游戏。
 
-| 热键 | 作用 |
-| --- | --- |
-| `Ctrl+Alt+1` … `Ctrl+Alt+9` | 切到对应窗口 |
-| `Ctrl+Alt+→` | 下一个窗口 |
-| `Ctrl+Alt+0` | 重新接入主画面 |
-
-可在「设置 → 编辑热键」里修改。热键必须带上 Ctrl、Alt、Shift 或 Win。
-
-窗口较多时，普通界面保留单列小窗并纵向滚动；迷你控制台使用换行网格并支持滚动。0.1.5 已用 4、8、12、20 个独立测试窗口验证，屏幕外的实时预览会释放，滚动返回时重建，部分可见预览按视口裁剪。真实游戏的多账号性能还需单独验证。
-
-### 攻略
-
-攻略是按需打开的独立窗口，显示魔力百科；之后会记住是否打开。它可以拖动、缩放、置顶，并记住位置和大小。分类直接在百科页面中切换，窗口台不再额外显示分类下拉框；输入关键词并回车可搜索当前浏览的分类。页面失败时可以重试，也可以用系统浏览器打开。点攻略窗口关闭只是收起，顶部再点「攻略」会回到原处。
-
-### 画质增强
-
-只作用于主窗口，不改游戏目录，也不把游戏窗口拉大。游戏仍按 800×600 绘制。打开后，窗口台采集已经画好的画面，用 FSR 铺进主区域里最大的 4:3 矩形，画面不拉伸。窗口变宽时左右留出台面，变高时上下留出台面。
-
-开启增强时，游戏源窗口保持在控制台后方，主区域呈现 FSR 处理后的画面；关闭增强后恢复原生嵌入。底部会显示实际输入、输出分辨率，例如 `800×600 → 1280×960`，便于确认是否真正放大。诊断信息包含实际渲染帧数。
-
-0.1.10 补充增强模式下的中文输入支持：点击游戏画面后可使用中文输入法组词、选字和提交。切换客户端时取消尚未确认的组词，避免把文字提交到另一窗口。实际输入效果仍需结合游戏和所用输入法确认。
-
-「锐化强度」只调节锐度，不改变这块矩形的大小；值过高可能产生白边。采集不到画面时，主窗口保持原来的 800×600，状态栏会注明增强尚未生效。
-
-增强文件放在 `%LocalAppData%\CgDesk\enhance`。程序会把画质入口、注入器和随包的画质组件复制到这里：
-
-```text
-%LocalAppData%\CgDesk\enhance\dgv\ddraw_dgv.dll
-```
-
-这个文件来自 dgVoodoo 2 的 32 位 DirectDraw 包装，用来让游戏按原来的大小稳定绘制。放大由窗口台自己完成：
-
-```text
-.tools\dgv\MS\x86\DDraw.dll
-```
-
-发布包里已经带上这个文件，第一次打开增强时会复制过去。从源码运行时，如果数据目录里还没有它，把上面的 `DDraw.dll` 复制成 `ddraw_dgv.dll`。绘制参数由窗口台写入同目录的 `dgVoodoo.conf`。
-
-已打好的程序在 [GitHub Releases](https://github.com/359134032/cg-desk-public/releases) 的附件里，文件名是 `CgDesk-<版本>-win-x64.zip`。公开 Release 的附件可直接下载，无需登录 GitHub。解压后双击 `CgDesk.exe`，确认管理员权限后就能用。
-
-发布包统一通过 GitHub Releases 附件维护，不提交到源码仓库。仓库根目录的 `release/` 仅供本地临时打包使用，已加入 Git 忽略规则。
-
-## 回归检查
+## 验证
 
 ```powershell
 dotnet run --project tests/CgDesk.Regression/CgDesk.Regression.csproj -c Release
-```
-
-检查会创建并清理独立的测试客户端窗口，验证接入、切换、编号稳定、桌面恢复、攻略生命周期、中文配置编码及深浅色切换。FSR 检查会实际运行窗口采集和 GPU 着色器，读取输出像素，并验证连续帧、调整窗口后的输出尺寸、鼠标映射与键盘转发，需要可用的图形桌面。检查不保存用户设置或安装攻略运行环境。测试客户端不代替真实游戏验证；真实游戏必须通过官方登录器登录并选择角色后检查。
-
-多开压力与发布前扫描：
-
-```powershell
+dotnet run --project tests/CgDesk.Regression/CgDesk.Regression.csproj -c Release -- --probe-resolution
+dotnet run --project tests/CgDesk.Regression/CgDesk.Regression.csproj -c Release -- --probe-scaling
 dotnet run --project tests/CgDesk.Regression/CgDesk.Regression.csproj -c Release -- --stress-layout --enforce-clipping
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-SourcePrivacy.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-SourcePrivacy.ps1 -PackagePath release/CgDesk-0.1.10-win-x64.zip
 ```
 
-详见[首发验收说明](docs/reports/release-0.1.7.md)。当前分发目标为 Windows x64，不能仅凭编译目标认定所有 Windows 10 版本受支持。
+测试使用独立客户端夹具，验证分辨率过滤、旧配置迁移、组件所有权、原文件保持、窗口自动适配、切换、缩略图裁剪、IME、光标恢复、攻略和更新流程。测试程序不会登录真实游戏。用户另通过官方登录器完成了本机 1600×1200 与 FSR 显示验收；这不能代替账号安全、长期运行或其他客户端版本的兼容保证。
 
-### 更新检测（0.1.6）
+FSR 采集测试需要正常 Windows 桌面；沙箱隔离桌面会使系统采集接口返回 E_INVALIDARG。
 
-在「设置 → 软件更新」开启自动检测，点「更新源…」配置主、备用 HTTPS 清单地址。启动后自动检查，成功后每 6 小时检查一次，失败后间隔至少 1 小时；也可手动点「检查更新」。发现新版后在底部保留提醒，并尝试托盘通知，点击后下载并校验安装包，支持进度和取消。安装由用户自行解压新版本，不会自动关闭游戏或替换正在运行的程序。
+## 原生实验组件
 
-默认更新源为[本项目的公开 Releases](https://github.com/359134032/cg-desk-public/releases)，无需 GitHub 凭据。旧版空地址或旧项目地址会自动迁移，自定义镜像和关闭自动检查的选择会保留。国内连接不畅时，可配置国内可达的对象存储/CDN；清单和 ZIP 都需要镜像。配置、签名清单生成和发布流程见[更新发布文档](docs/update-publishing.md)，架构见[更新源设计](docs/update-source-design.md)。
-
-0.1.8 起，稳定通道直接读取正式 Release 的签名附件，避开 GitHub 匿名 REST API 限流。测试通道仍需 API 发现预发布版本，遇到限流会显示恢复时间并退避；不会再把所有 403 统一解释为仓库不公开。
-
-重新生成 DirectDraw 入口时显式指定输出位置：
+源代码在 tools/CgDesk.ViewportExperimentNative，随程序发布的独立组件在 src/CgDesk/Native/Viewport。普通 .NET 构建使用已打包组件；修改 C++ 后需要已有 MSVC x86 工具链，执行：
 
 ```powershell
-dotnet run --project src/CgDesk/Native/ProxyBuilder/ProxyBuilder.csproj -c Release -- src/CgDesk/Native/ddraw-proxy.dll
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/CgDesk.ViewportExperimentNative/Build.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/CgDesk.ViewportExperimentNative/Test-Smoke.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/CgDesk.ViewportExperimentNative/Test-MapCache.ps1
 ```
 
-## 仓库里的资源
+构建脚本会校验本机分析证据并更新随包 DLL 和哈希清单，不安装到游戏目录。未持有本机分析证据时不要重新生成该版本绑定组件。历史实验报告保留在 docs/reports，不能作为本次启动器集成的实机验收。
 
-| 路径 | 内容 |
-| --- | --- |
-| `src/CgDesk` | 窗口台本体 |
-| `src/CgDesk/Shaders` | 画质增强使用的 FSR 1.0 着色器 |
-| `src/CgDesk/Native/ddraw-proxy.dll` | 随程序发布的 DirectDraw 入口 |
-| `src/CgDesk/Native/enhance-inject.exe` | 随程序发布的启动注入器 |
-| `src/CgDesk/Native/ProxyBuilder` | 重新生成 `ddraw-proxy.dll` 的工具 |
-| `src/CgDesk/Native/EnhanceInject` | 注入器源码 |
-| `.tools/dgVoodoo2_87_5.zip` | dgVoodoo 2.87.5 原包 |
-| `.tools/dgv` | 上面这个包的解压结果 |
-| GitHub Release 附件 `CgDesk-<版本>-win-x64.zip` | 可直接运行的安装包 |
-
-dgVoodoo 2 是 Dege 的第三方组件，只供画质增强使用。FSR 着色器来自 AMD GPUOpen，许可在头文件里。`bin/`、`obj/` 和 Visual Studio 的本地文件仍不入库。
+发布包通过 [GitHub Releases](https://github.com/359134032/cg-desk-public/releases) 分发。本地 release、artifacts、bin、obj 不入库；第三方许可见 [许可说明](docs/third-party-notices.md) 和包内 licenses 目录。

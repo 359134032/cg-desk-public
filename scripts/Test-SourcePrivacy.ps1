@@ -13,12 +13,19 @@ $rules = [ordered]@{
     'bearer-credential' = '(?i)\bBearer\s+[A-Za-z0-9_./+-]{20,}'
     'personal-path' = '(?i)\b[A-Z]:[\\/]|/(?:Users|home)/[A-Za-z0-9._-]+/'
 }
-$textExtensions = @('.cs', '.csproj', '.xaml', '.manifest', '.json', '.md', '.txt', '.url', '.ps1', '.yml', '.yaml', '.h', '.props', '.targets', '.slnx', '.gitignore', '.conf')
+$textExtensions = @('.cs', '.csproj', '.xaml', '.manifest', '.json', '.md', '.txt', '.url', '.ps1', '.yml', '.yaml', '.h', '.c', '.cpp', '.py', '.def', '.props', '.targets', '.slnx', '.gitignore', '.conf')
 $findings = [System.Collections.Generic.List[object]]::new()
 
 function Test-Text([string]$Text, [string]$Location, [string]$Scope) {
     foreach ($rule in $rules.GetEnumerator()) {
         foreach ($match in [regex]::Matches($Text, $rule.Value)) {
+            if ($rule.Key -eq 'personal-path' -and [IO.Path]::GetExtension($Location) -in @('.dll', '.exe', '.pdb')) {
+                # Arbitrary PE/resource bytes can resemble a drive prefix. A
+                # binary path finding must also contain a readable path component.
+                # Text-source rules remain unchanged, including bare drive roots.
+                $tail = $Text.Substring($match.Index, [Math]::Min(512, $Text.Length - $match.Index))
+                if ($match.Value -match '^[A-Za-z]:[\\/]' -and $tail -notmatch '^[A-Za-z]:[\\/][\p{L}\p{N}_ .()@+\-\[\]]{2,}') { continue }
+            }
             $line = 1 + ([regex]::Matches($Text.Substring(0, $match.Index), "`n")).Count
             # Never emit the matching value, including when a real credential is found.
             $findings.Add([pscustomobject]@{ Scope = $Scope; Location = $Location; Line = $line; Rule = $rule.Key })
@@ -67,12 +74,12 @@ try {
                     $findings.Add([pscustomobject]@{ Scope = 'package'; Location = $entry.FullName; Line = 0; Rule = 'private-file' })
                 }
                 # Inspect app-owned binaries and text; third-party runtime binaries are outside this source audit.
-                if ([IO.Path]::GetExtension($entry.FullName) -in $textExtensions -or $entry.Name -in @('CgDesk.dll', 'CgDesk.pdb', 'ddraw-proxy.dll', 'enhance-inject.exe')) {
+                if ([IO.Path]::GetExtension($entry.FullName) -in $textExtensions -or $entry.Name -in @('CgDesk.dll', 'CgDesk.pdb', 'ddraw.dll')) {
                     $stream = $entry.Open()
                     $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::UTF8)
                     try { Test-Text ($reader.ReadToEnd()) $entry.FullName 'package' }
                     finally { $reader.Dispose(); $stream.Dispose() }
-                    if ($entry.Name -in @('CgDesk.dll', 'CgDesk.pdb', 'ddraw-proxy.dll', 'enhance-inject.exe')) {
+                    if ($entry.Name -in @('CgDesk.dll', 'CgDesk.pdb', 'ddraw.dll')) {
                         $stream = $entry.Open()
                         $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::Unicode, $false)
                         try { Test-Text ($reader.ReadToEnd()) $entry.FullName 'package-utf16' }

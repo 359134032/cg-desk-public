@@ -529,6 +529,12 @@ internal static class GameEmbedder
         return dpiX / 96.0;
     }
 
+    internal static (int Width, int Height) CaptureSize(IntPtr game, int width, int height)
+    {
+        var scale = PhysicalScale(game);
+        return ((int)Math.Round(width * scale), (int)Math.Round(height * scale));
+    }
+
     public static void MoveStaged(IntPtr game, int x, int y)
     {
         if (!Staged.TryGetValue(game, out var place))

@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -17,10 +17,8 @@ namespace CgDesk;
 public partial class MainWindow : Window
 {
     private readonly DispatcherTimer _timer;
-    private readonly DispatcherTimer _enhanceTimer;
     private readonly Func<GameWindow, bool>? _windowFilter;
     private readonly bool _persistConfiguration;
-    private readonly bool _manageEnhancementFiles;
     private AppConfig _config = new();
     private HotkeyHost? _hotkeys;
     private IntPtr _primaryHandle;
@@ -37,10 +35,6 @@ public partial class MainWindow : Window
     private bool _allowClose;
     private bool _adjusting;
     private bool _placing;
-    private int _fittedWidth = WindowArranger.GameClientWidth;
-    private int _fittedHeight = WindowArranger.GameClientHeight;
-    private bool _upscaleLive;
-    private bool _upscaleNoted;
     private int _freezeGeneration;
     private long _quietForegroundUntil;
     private Rect _normalBounds;
@@ -61,72 +55,46 @@ public partial class MainWindow : Window
 
     public MainWindow() : this(ConfigStore.Load()) { }
 
-    internal MainWindow(AppConfig config, bool initializeEnhancement = true, Func<GameWindow, bool>? windowFilter = null, bool persistConfiguration = true, UpdateService? updateService = null)
+    internal MainWindow(AppConfig config, Func<GameWindow, bool>? windowFilter = null, bool persistConfiguration = true, UpdateService? updateService = null)
     {
         _windowFilter = windowFilter;
         _persistConfiguration = persistConfiguration;
-        _manageEnhancementFiles = initializeEnhancement;
         _updateService = updateService;
         InitializeComponent();
         _mainHost = new GameHost();
         _mainHost.Clicked += () =>
         {
-            if (UseCapturedMain)
-            {
-                _mainHost.FocusInput();
-                return;
-            }
             if (!ReferenceEquals(Keyboard.FocusedElement, _mainHost))
             {
                 Keyboard.Focus(_mainHost);
             }
         };
         MainViewport.Child = _mainHost;
+        _scaleTimer.Tick += (_, _) => UpdatePresentationFit();
         _selfPid = Process.GetCurrentProcess().Id;
         _config = config;
         DeskTheme.Apply(_config.DarkMode);
         _guideWindow = new GuideWindow();
         LoadConfigToUi();
+        RefreshResolutionChoices();
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _timer.Tick += (_, _) => RefreshStatus();
         _timer.Start();
-        _enhanceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(220) };
-        _enhanceTimer.Tick += (_, _) =>
-        {
-            _enhanceTimer.Stop();
-            if (_docked || _adjusting)
-            {
-                return;
-            }
-
-            ApplyEnhancedFrame();
-            Dispatcher.BeginInvoke(() =>
-            {
-                if (_docked || _adjusting)
-                {
-                    return;
-                }
-
-                EmbedIntoHosts();
-                if (_config.EnhanceMainWindow)
-                {
-                    GameEnhance.UpdateResolution(WindowArranger.GameClientWidth, WindowArranger.GameClientHeight);
-                }
-            }, DispatcherPriority.Loaded);
-        };
-        Stage.SizeChanged += (_, _) => ScheduleEnhancedFit();
-        LocationChanged += (_, _) => KeepSmallWindowsCovered();
+        Stage.SizeChanged += (_, _) => { ApplyNativeFrame(); SchedulePresentationFit(); };
+        GameScroller.SizeChanged += (_, _) => SchedulePresentationFit();
+        LocationChanged += (_, _) => { KeepSmallWindowsCovered(); RefreshResolutionChoices(); };
         SizeChanged += (_, _) => KeepSmallWindowsCovered();
         ThumbScroller.ScrollChanged += (_, _) => RefreshSmallPreviews();
         MiniScroller.ScrollChanged += (_, _) => { if (_docked) ApplyThumbnailRects(); };
         _loading = false;
-        if (initializeEnhancement) ApplyEnhance(false);
         RefreshStatus();
         StateChanged += (_, _) =>
         {
             if (WindowState != WindowState.Minimized)
             {
                 if (IsLoaded) Dispatcher.BeginInvoke(RefreshStatus, DispatcherPriority.Loaded);
+                if (WindowState == WindowState.Maximized || _scaleAfterResize) EnableFsrForResize();
                 return;
             }
 
@@ -196,9 +164,11 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
         CloseUpdateChecks();
         _timer.Stop();
-        _enhanceTimer.Stop();
+        _scaleTimer.Stop();
+        FsrSurface.Close();
         _guideSaveTimer?.Stop();
         _cursorTimer?.Stop();
         if (_mouseHook != IntPtr.Zero)
@@ -216,7 +186,6 @@ public partial class MainWindow : Window
             _foregroundHook = IntPtr.Zero;
         }
 
-        FsrSurface.Close();
         CloseThumbs();
         if (_tray != null)
         {
@@ -233,9 +202,6 @@ public partial class MainWindow : Window
     {
         LauncherPathBox.Text = _config.LauncherPath;
         HotkeyBox.IsChecked = _config.HotkeysEnabled;
-        EnhanceBox.IsChecked = _config.EnhanceMainWindow;
-        SharpnessSlider.Value = Math.Clamp(_config.EnhanceSharpness, 0, 1);
-        SharpnessLabel.Text = $"锐化强度 {Math.Round(SharpnessSlider.Value * 100)}%";
         LiveSmallBox.IsChecked = _config.LiveSmallPreview != false;
         DarkBox.IsChecked = _config.DarkMode;
         CloseToTrayBox.IsChecked = _config.CloseToTray;
@@ -258,8 +224,6 @@ public partial class MainWindow : Window
 
         _config.LauncherPath = LauncherPathBox.Text.Trim();
         _config.HotkeysEnabled = HotkeyBox.IsChecked == true;
-        _config.EnhanceMainWindow = EnhanceBox.IsChecked == true;
-        _config.EnhanceSharpness = Math.Clamp(SharpnessSlider.Value, 0, 1);
         _config.LiveSmallPreview = LiveSmallBox.IsChecked == true;
         _config.DarkMode = DarkBox.IsChecked == true;
         if (_persistConfiguration) ConfigStore.Save(_config);
@@ -305,6 +269,7 @@ public partial class MainWindow : Window
         }
 
         UpdateStage();
+        FitDeskAfterGameStarts();
         if (NeedsEmbed())
         {
             _embedWaits = 0;
@@ -578,14 +543,15 @@ public partial class MainWindow : Window
     private void ApplyViewportMinimum()
     {
         var dpi = VisualTreeHelper.GetDpi(this);
-        MainViewport.MinWidth = WindowArranger.GameClientWidth / dpi.DpiScaleX;
-        MainViewport.MinHeight = WindowArranger.GameClientHeight / dpi.DpiScaleY;
+        var shown = ShownGameSize();
+        MainViewport.MinWidth = UseCapturedMain ? 0 : shown.Width / dpi.DpiScaleX;
+        MainViewport.MinHeight = UseCapturedMain ? 0 : shown.Height / dpi.DpiScaleY;
         if (_docked)
         {
             return;
         }
 
-        var work = SystemParameters.WorkArea;
+        var work = DeskWorkArea();
         MinWidth = Math.Min(760, work.Width);
         MinHeight = Math.Min(560, work.Height);
         Width = Math.Min(Width, work.Width);
@@ -601,7 +567,7 @@ public partial class MainWindow : Window
 
         if (_docked)
         {
-            SetStatus("先点展开。缩在左下角时主区域放不下 800×600 的游戏窗口。");
+            SetStatus("请先展开控制台以接入游戏窗口。");
             return false;
         }
 
@@ -615,7 +581,7 @@ public partial class MainWindow : Window
                     EmbedIntoHosts();
                 }
             }), DispatcherPriority.Loaded);
-            SetStatus("主区域还没到 800×600，游戏窗口先留在原处。");
+            SetStatus("正在按游戏尺寸调整主区域。");
             return false;
         }
 
@@ -665,13 +631,13 @@ public partial class MainWindow : Window
         if (_primaryHandle != IntPtr.Zero && NativeMethods.IsWindow(_primaryHandle) && _mainHost.HostHandle != IntPtr.Zero
             && NativeMethods.GetClientRect(_mainHost.HostHandle, out var hostClient))
         {
-            var shown = ShownGameSize();
+            var shown = PresentedGameSize();
             var hostWidth = hostClient.Right - hostClient.Left;
             var hostHeight = hostClient.Bottom - hostClient.Top;
             if ((hostWidth > shown.Width + 24 || hostHeight > shown.Height + 24) && _hugWaits < 6)
             {
                 _hugWaits++;
-                ApplyEnhancedFrame();
+                ApplyNativeFrame();
                 Dispatcher.BeginInvoke(() => EmbedIntoHosts(), DispatcherPriority.Loaded);
                 return false;
             }
@@ -686,20 +652,10 @@ public partial class MainWindow : Window
             {
                 var host = _mainHost.HostHandle;
                 var fresh = !IsMainConnected;
-                var shown = _upscaleLive
-                    ? (Width: WindowArranger.GameClientWidth, Height: WindowArranger.GameClientHeight)
-                    : ShownGameSize();
-                if (UseCapturedMain && TryCoveredOrigin(out var sourceX, out var sourceY))
-                {
-                    // Windows Graphics Capture rejects child windows. Keep the source
-                    // at native size behind the desk and render FSR into the UI host.
-                    embedded = GameEmbedder.ShowFull(_primaryHandle, sourceX, sourceY,
-                        WindowArranger.GameClientWidth, WindowArranger.GameClientHeight, forCapture: true);
-                }
-                else
-                {
-                    embedded = GameEmbedder.Place(_primaryHandle, host, shown.Width, shown.Height);
-                }
+                var shown = ShownGameSize();
+                if (UseCapturedMain && TryCaptureOrigin(out var sourceX, out var sourceY))
+                    embedded = GameEmbedder.ShowFull(_primaryHandle, sourceX, sourceY, shown.Width, shown.Height, forCapture: true);
+                else embedded = GameEmbedder.Place(_primaryHandle, host, shown.Width, shown.Height);
                 _mainHost.KeyTarget = embedded ? _primaryHandle : IntPtr.Zero;
                 if (embedded)
                 {
@@ -708,7 +664,7 @@ public partial class MainWindow : Window
 
                 if (embedded && fresh)
                 {
-                    if (!UseCapturedMain) GameEmbedder.Focus(_primaryHandle);
+                    FocusPrimaryInput();
                     GameEmbedder.NudgeActive(_primaryHandle);
                 }
                 SetConnectionError(embedded ? "" : GameEmbedder.LastError);
@@ -772,8 +728,9 @@ public partial class MainWindow : Window
         }
 
         var dpi = VisualTreeHelper.GetDpi(this);
-        return MainViewport.ActualWidth * dpi.DpiScaleX >= WindowArranger.GameClientWidth - 8
-            && MainViewport.ActualHeight * dpi.DpiScaleY >= WindowArranger.GameClientHeight - 8;
+        var shown = ShownGameSize();
+        return MainViewport.ActualWidth * dpi.DpiScaleX >= shown.Width - 8
+            && MainViewport.ActualHeight * dpi.DpiScaleY >= shown.Height - 8;
     }
 
     private void EnsureRoomForGame()
@@ -785,9 +742,9 @@ public partial class MainWindow : Window
 
         ApplyViewportMinimum();
         var dpi = VisualTreeHelper.GetDpi(this);
-        var missingWidth = WindowArranger.GameClientWidth / dpi.DpiScaleX - MainViewport.ActualWidth;
-        var missingHeight = WindowArranger.GameClientHeight / dpi.DpiScaleY - MainViewport.ActualHeight;
-        var work = SystemParameters.WorkArea;
+        var missingWidth = ShownGameSize().Width / dpi.DpiScaleX - MainViewport.ActualWidth;
+        var missingHeight = ShownGameSize().Height / dpi.DpiScaleY - MainViewport.ActualHeight;
+        var work = DeskWorkArea();
         if (WindowState != WindowState.Normal) return;
         if (missingWidth > 1)
         {
@@ -998,9 +955,7 @@ public partial class MainWindow : Window
         _adjusting = true;
         _normalBounds = new Rect(Left, Top, Width, Height);
         _docked = true;
-        _upscaleLive = false;
-        _upscaleNoted = false;
-        ApplyEnhancedFrame();
+        ApplyNativeFrame();
         ReleaseEmbedded();
         SideBar.Visibility = Visibility.Collapsed;
         SideColumn.Width = new GridLength(0);
@@ -1039,7 +994,7 @@ public partial class MainWindow : Window
 
     private void MoveDockOnScreen()
     {
-        var work = SystemParameters.WorkArea;
+        var work = DeskWorkArea();
         const double dockWidth = 460;
         const double dockHeight = 340;
         Width = dockWidth;
@@ -1063,8 +1018,8 @@ public partial class MainWindow : Window
         DockBar.Visibility = Visibility.Collapsed;
         Left = _normalBounds.Left;
         Top = _normalBounds.Top;
-        Width = Math.Min(SystemParameters.WorkArea.Width, Math.Max(MinWidth, _normalBounds.Width));
-        Height = Math.Min(SystemParameters.WorkArea.Height, Math.Max(MinHeight, _normalBounds.Height));
+        Width = Math.Min(DeskWorkArea().Width, Math.Max(MinWidth, _normalBounds.Width));
+        Height = Math.Min(DeskWorkArea().Height, Math.Max(MinHeight, _normalBounds.Height));
         Show();
         if (_config.ShowGuide)
         {
@@ -1082,7 +1037,7 @@ public partial class MainWindow : Window
             try
             {
                 EnsureToolVisible();
-                ApplyEnhancedFrame();
+                ApplyNativeFrame();
                 _adjusting = false;
                 if (EmbedPrimary())
                 {
@@ -1282,6 +1237,8 @@ public partial class MainWindow : Window
 
         try
         {
+            if (!PrepareLaunchResolution(out var resolutionMessage)) { SetStatus(resolutionMessage); return; }
+            SaveConfig();
             Process.Start(new ProcessStartInfo
             {
                 FileName = path,
@@ -1290,7 +1247,7 @@ public partial class MainWindow : Window
             });
             _waitingForGame = true;
             RefreshStatus();
-            SetStatus("已打开官方登录器。账号密码在登录器里输入，进入游戏后窗口会嵌到这里。");
+            SetStatus($"{resolutionMessage} 已打开官方登录器，进入游戏后自动适配窗口台。");
         }
         catch (Exception ex)
         {
@@ -1411,133 +1368,29 @@ public partial class MainWindow : Window
         ShowGuideWindow(true);
     }
 
-    private void EnhanceBox_Changed(object sender, RoutedEventArgs e)
+    private void ApplyNativeFrame()
     {
-        if (_loading)
-        {
-            return;
-        }
-
-        SaveConfig();
-        _upscaleLive = false;
-        _upscaleNoted = false;
-        if (EnhanceBox.IsChecked == true)
-        {
-            FsrSurface.Reset();
-        }
-        else
-        {
-            FsrSurface.Hide();
-        }
-
-        ApplyEnhancedFrame();
-        ApplyEnhance(true);
-        EmbedIntoHosts();
-    }
-
-    private void ScheduleEnhancedFit()
-    {
-        if (!_config.EnhanceMainWindow || _docked || _adjusting)
-        {
-            return;
-        }
-
-        _enhanceTimer.Stop();
-        _enhanceTimer.Start();
-    }
-
-    private void ApplyEnhancedFrame()
-    {
-        if (_docked)
-        {
-            return;
-        }
-
-        if (_upscaleLive && TryFitPane(out var fittedWidth, out var fittedHeight))
-        {
-            _fittedWidth = fittedWidth;
-            _fittedHeight = fittedHeight;
-        }
-        else
-        {
-            _fittedWidth = WindowArranger.GameClientWidth;
-            _fittedHeight = WindowArranger.GameClientHeight;
-        }
-
-        var scale = VisualTreeHelper.GetDpi(this);
-        FitViewport(
-            scale.DpiScaleX,
-            scale.DpiScaleY,
-            MainViewport.BorderThickness.Left + MainViewport.BorderThickness.Right,
-            MainViewport.BorderThickness.Top + MainViewport.BorderThickness.Bottom);
-    }
-
-    private void FitViewport(double scaleX, double scaleY, double borderX, double borderY)
-    {
-        var shown = ShownGameSize();
+        if (_docked) return;
+        var shown = PresentedGameSize();
+        var dpi = VisualTreeHelper.GetDpi(this);
         MainViewport.HorizontalAlignment = System.Windows.HorizontalAlignment.Center;
         MainViewport.VerticalAlignment = VerticalAlignment.Center;
-        MainViewport.Width = shown.Width / scaleX + borderX;
-        MainViewport.Height = shown.Height / scaleY + borderY;
-    }
-
-    private bool TryFitPane(out int width, out int height)
-    {
-        width = WindowArranger.GameClientWidth;
-        height = WindowArranger.GameClientHeight;
-        if (MainPane.ActualWidth < 32 || MainPane.ActualHeight < 32)
-        {
-            return false;
-        }
-
-        var dpi = VisualTreeHelper.GetDpi(this);
-        var caption = MainCaption.ActualHeight + MainCaption.Margin.Bottom;
-        var innerWidth = MainPane.ActualWidth * dpi.DpiScaleX;
-        var innerHeight = Math.Max(0, MainPane.ActualHeight - caption) * dpi.DpiScaleY;
-        var fitted = WindowArranger.FitClient(innerWidth, innerHeight);
-        width = fitted.Width;
-        height = fitted.Height;
-        return true;
+        MainViewport.Width = shown.Width / dpi.DpiScaleX + MainViewport.BorderThickness.Left + MainViewport.BorderThickness.Right;
+        MainViewport.Height = shown.Height / dpi.DpiScaleY + MainViewport.BorderThickness.Top + MainViewport.BorderThickness.Bottom;
+        GameScroller.HorizontalScrollBarVisibility = UseCapturedMain ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto;
+        GameScroller.VerticalScrollBarVisibility = UseCapturedMain ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto;
     }
 
     private (int Width, int Height) ShownGameSize()
     {
-        if (_upscaleLive)
-        {
-            return (_fittedWidth, _fittedHeight);
-        }
-
-        var width = Math.Max(WindowArranger.GameClientWidth, _fittedWidth);
-        var height = Math.Max(WindowArranger.GameClientHeight, _fittedHeight);
+        if (_fsrRequested && _fsrSource == _primaryHandle && _sourceBeforeFsr.Width > 0) return _sourceBeforeFsr;
         if (_primaryHandle != IntPtr.Zero && NativeMethods.GetClientRect(_primaryHandle, out var client))
         {
-            var gameWidth = Math.Max(0, client.Right - client.Left);
-            var gameHeight = Math.Max(0, client.Bottom - client.Top);
-            if (gameWidth >= 640 && gameHeight >= 480 && (gameWidth + 16 < width || gameHeight + 16 < height))
-            {
-                return (gameWidth, gameHeight);
-            }
+            var width = client.Right - client.Left;
+            var height = client.Bottom - client.Top;
+            if (width >= 320 && height >= 240) return (width, height);
         }
-
-        return (width, height);
-    }
-
-    private void ApplyEnhance(bool announce)
-    {
-        if (!_manageEnhancementFiles) return;
-        var directory = GameInstallDirectory.FindDirectory(_config.GamePath, LauncherPathBox.Text.Trim());
-        var message = GameEnhance.Apply(
-            directory,
-            _config.EnhanceMainWindow,
-            WindowArranger.GameClientWidth,
-            WindowArranger.GameClientHeight,
-            GameExe());
-        if (!announce)
-        {
-            return;
-        }
-
-        SetStatus(message);
+        return (WindowArranger.GameClientWidth, WindowArranger.GameClientHeight);
     }
 
     private void LiveSmallBox_Changed(object sender, RoutedEventArgs e)
@@ -1575,7 +1428,8 @@ public partial class MainWindow : Window
 
         if (TryCoveredOrigin(out var x, out var y))
         {
-            if (UseCapturedMain) GameEmbedder.MoveStaged(_primaryHandle, x, y);
+            if (UseCapturedMain && TryCaptureOrigin(out var captureX, out var captureY))
+                GameEmbedder.MoveStaged(_primaryHandle, captureX, captureY);
             foreach (var slot in _smallSlots)
             {
                 GameEmbedder.MoveStaged(slot.Game, x, y);
@@ -1760,96 +1614,25 @@ public partial class MainWindow : Window
 
     private void SyncGameCloak()
     {
-        if (_config.EnhanceMainWindow && FsrSurface.Failed && _mainHost != null
-            && GameEmbedder.IsReady(_primaryHandle) && !GameEmbedder.IsAttached(_primaryHandle, _mainHost.HostHandle))
+        if (_fsrRequested && FsrSurface.Failed && _mainHost != null && GameEmbedder.IsReady(_primaryHandle))
         {
-            _upscaleLive = false;
-            Dispatcher.BeginInvoke(() => { ApplyEnhancedFrame(); EmbedIntoHosts(); }, DispatcherPriority.Loaded);
+            var reason = FsrSurface.LastError;
+            _fsrRequested = false;
+            FsrSurface.Hide();
+            Dispatcher.BeginInvoke(() => { ApplyNativeFrame(); EmbedIntoHosts(); SetStatus(reason); }, DispatcherPriority.Loaded);
             return;
         }
         if (_docked || !IsVisible || WindowState == WindowState.Minimized
-            || _mainHost == null || _primaryHandle == IntPtr.Zero
-            || !IsMainConnected)
+            || _mainHost == null || _primaryHandle == IntPtr.Zero || !IsMainConnected)
         {
-            if ((_mainHost != null && _mainHost.KeyTarget != IntPtr.Zero) || _upscaleLive || _appliedCursorMode == CursorModeGame)
+            if ((_mainHost != null && _mainHost.KeyTarget != IntPtr.Zero) || _appliedCursorMode == CursorModeGame)
                 ResetGameInputPresentation();
-            else
-            {
-                GameCursorCloak.Hide();
-                FsrSurface.Hide();
-            }
+            else GameCursorCloak.Hide();
             return;
         }
-
-        var host = _mainHost.HostHandle;
-        if (UseCapturedMain && !GameEmbedder.IsReady(_primaryHandle))
-        {
-            // Layout can defer re-placement. Never start capture while the source
-            // is still a child window from the non-enhanced mode.
-            if (!_placing) Dispatcher.BeginInvoke(() => EmbedIntoHosts(), DispatcherPriority.Loaded);
-            return;
-        }
-        if (!_config.EnhanceMainWindow)
-        {
-            if (_upscaleLive || FsrSurface.IsPresenting)
-            {
-                _upscaleLive = false;
-                FsrSurface.Hide();
-                Dispatcher.BeginInvoke(() => { ApplyEnhancedFrame(); EmbedIntoHosts(); });
-            }
-
-            GameCursorCloak.Sync(host, _primaryHandle);
-            return;
-        }
-
-        FsrSurface.Sync(host, _primaryHandle, (float)_config.EnhanceSharpness);
-        if (FsrSurface.Failed)
-        {
-            if (!_upscaleNoted)
-            {
-                _upscaleNoted = true;
-                _upscaleLive = false;
-                SetStatus(FsrSurface.LastError);
-                Dispatcher.BeginInvoke(() => { ApplyEnhancedFrame(); EmbedIntoHosts(); });
-            }
-
-            GameCursorCloak.Sync(host, _primaryHandle);
-            return;
-        }
-
-        if (FsrSurface.IsPresenting)
-        {
-            GameCursorCloak.Hide();
-            if (!_upscaleLive)
-            {
-                _upscaleLive = true;
-                _upscaleNoted = false;
-                Dispatcher.BeginInvoke(() =>
-                {
-                    ApplyEnhancedFrame();
-                    EmbedIntoHosts();
-                    SetStatus("画质增强开着。画面按主区域的 4:3 铺满。");
-                });
-            }
-
-            return;
-        }
-
-        GameCursorCloak.Sync(host, _primaryHandle);
-    }
-
-    private void SharpnessSlider_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (_loading || SharpnessLabel == null)
-        {
-            return;
-        }
-
-        var clarity = Math.Clamp(SharpnessSlider.Value, 0, 1);
-        SharpnessLabel.Text = $"锐化强度 {Math.Round(clarity * 100)}%";
-        _config.EnhanceSharpness = clarity;
-        FsrSurface.SetSharpness((float)clarity);
-        SaveConfig();
+        if (UseCapturedMain) { SyncScaledGame(); return; }
+        FsrSurface.Hide();
+        GameCursorCloak.Sync(_mainHost.HostHandle, _primaryHandle);
     }
 
     private IntPtr OnLowLevelMouse(int code, IntPtr wParam, IntPtr lParam)
@@ -1890,10 +1673,9 @@ public partial class MainWindow : Window
 
     private void ResetGameInputPresentation()
     {
+        ResetFsrPresentation();
         GameCursorCloak.Hide();
-        FsrSurface.Hide();
         if (_mainHost != null) _mainHost.KeyTarget = IntPtr.Zero;
-        _upscaleLive = false;
         RestoreSystemCursors();
         System.Windows.Input.Mouse.UpdateCursor();
         GamePointer.RestoreArrow();
@@ -2122,6 +1904,8 @@ public partial class MainWindow : Window
 
     private IntPtr OnDeskMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (msg == 0x0214 || msg == 0x0112 && (wParam.ToInt64() & 0xFFF0) == 0xF030)
+            EnableFsrForResize();
         if (msg is not (0x0100 or 0x0101 or 0x0102 or 0x0104 or 0x0105 or 0x0106))
         {
             return IntPtr.Zero;

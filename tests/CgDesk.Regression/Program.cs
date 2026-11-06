@@ -27,6 +27,15 @@ internal static partial class Program
             var countArg = args.FirstOrDefault(value => value.StartsWith("--windows="));
             return RunClient(countArg == null ? 1 : int.Parse(countArg[10..], CultureInfo.InvariantCulture));
         }
+        // Development-only installer host: use the same ownership and version
+        // guards as the launcher, without starting the game or its login UI.
+        if (args.Length == 4 && args[0] == "--prepare-viewport")
+        {
+            var mode = new LaunchResolution(int.Parse(args[2], CultureInfo.InvariantCulture),
+                int.Parse(args[3], CultureInfo.InvariantCulture));
+            Console.WriteLine(new ViewportLaunchFiles().Prepare(args[1], mode));
+            return 0;
+        }
         if (File.Exists(Marker)) throw new InvalidOperationException("Test marker already exists; use a clean test output directory.");
         var app = new App { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.InitializeComponent();
@@ -42,12 +51,25 @@ internal static partial class Program
             }
             if (args.Contains("--stress-layout")) { TestManyWindows(app, args.Contains("--enforce-clipping")); return 0; }
             if (args.Contains("--probe-theme")) { TestTheme(app); return 0; }
-            if (args.Contains("--probe-fsr")) { TestSuperResolution(app); return 0; }
+            if (args.Contains("--probe-scaling")) { TestFourByThreeFsr(app); Console.WriteLine($"PASS: {_checks} FSR scaling checks."); return 0; }
+            if (args.Contains("--review-resolution"))
+            {
+                var main = NewDesk(app);
+                main.Title = "魔力窗口台 0.1.11 · 界面预览";
+                main.Closed += (_, _) => Dispatcher.ExitAllFrames();
+                main.Show();
+                File.WriteAllText(Marker,"CgDesk preview fixture");
+                StartClient();
+                Dispatcher.Run();
+                return 0;
+            }
+            if (args.Contains("--probe-resolution")) { TestLaunchResolutions(app); Console.WriteLine($"PASS: {_checks} resolution checks."); return 0; }
             if (args.Contains("--probe-ime")) { TestImeInput(app); Console.WriteLine($"PASS: {_checks} IME checks."); return 0; }
             if (args.Contains("--probe-dpi-mouse")) { TestScaledMouse(); Console.WriteLine($"PASS: {_checks} dpi mouse checks."); return 0; }
-            if (args.Contains("--probe-cursor")) { TestCursorAfterGameExit(app, true); TestCursorAfterGameExit(app, false); return 0; }
+            if (args.Contains("--probe-cursor")) { TestCursorAfterGameExit(app); return 0; }
             if (args.Contains("--probe-update")) { TestUpdates(app); Console.WriteLine($"PASS: {_checks} update checks."); return 0; }
             TestUpdates(app);
+            TestLaunchResolutions(app);
             TestLauncherEncoding();
             TestPreviewPlacement();
             TestConfigPrivacy();
@@ -73,9 +95,8 @@ internal static partial class Program
             else
             {
                 TestConnection(app);
-                TestCursorAfterGameExit(app, false);
-                TestCursorAfterGameExit(app, true);
-                TestSuperResolution(app);
+                TestCursorAfterGameExit(app);
+                TestFourByThreeFsr(app);
                 TestScaledMouse();
             }
             Console.WriteLine($"PASS: {_checks} checks.");
@@ -101,7 +122,7 @@ internal static partial class Program
 
     private static MainWindow NewDesk(App app, bool showGuide = false, AppConfig? config = null)
     {
-        var main = new MainWindow(config ?? new AppConfig { ShowGuide = showGuide, HotkeysEnabled = false }, initializeEnhancement: false,
+        var main = new MainWindow(config ?? new AppConfig { ShowGuide = showGuide, HotkeysEnabled = false },
             windowFilter: window => Clients.Any(client => client.Id == window.ProcessId), persistConfiguration: false);
         app.MainWindow = main;
         Field(main, "_guideStarted", true); // This check must not download/install browser components.
@@ -167,7 +188,7 @@ internal static partial class Program
         finally { CloseDesk(main); }
     }
 
-    private static void TestCursorAfterGameExit(App app, bool enhanced)
+    private static void TestCursorAfterGameExit(App app)
     {
         var clientStart = Clients.Count;
         var main = NewDesk(app);
@@ -179,20 +200,9 @@ internal static partial class Program
             var client = StartClient();
             var host = Get<GameHost>(main, "_mainHost");
             Wait(() => GameEmbedder.IsAttached(client.Handle, host.HostHandle), "Cursor fixture is connected.");
-            if (enhanced)
-            {
-                ((System.Windows.Controls.CheckBox)main.FindName("EnhanceBox")).IsChecked = true;
-                Wait(() => FsrSurface.Failed || FsrSurface.IsPresenting, "Cursor fixture starts FSR.");
-                Require(FsrSurface.IsPresenting, $"Cursor exit regression exercises the real FSR layer. {FsrSurface.LastError}");
-            }
-            else
-            {
-                Wait(() => host.KeyTarget == client.Handle, "Native game input is ready.");
-                GameCursorCloak.Sync(host.HostHandle, client.Handle);
-            }
-            var layerType = enhanced ? typeof(FsrSurface) : typeof(GameCursorCloak);
-            var layer = (IntPtr)layerType.GetField("_hwnd", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
-            if (enhanced) Require(layer != IntPtr.Zero, "FSR cursor layer exists.");
+            Wait(() => host.KeyTarget == client.Handle, "Native game input is ready.");
+            GameCursorCloak.Sync(host.HostHandle, client.Handle);
+            var layer = (IntPtr)typeof(GameCursorCloak).GetField("_hwnd", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
             if (layer != IntPtr.Zero)
             {
                 SendMessage(layer, 0x201, new IntPtr(1), new IntPtr((30 << 16) | 30));
@@ -205,9 +215,9 @@ internal static partial class Program
             Wait(() => !NativeMethods.IsWindow(client.Handle), "Game exits before pointer cleanup.");
             Call(main, "RefreshStatus");
             Call(main, "SyncGameCloak");
-            Require(layer != IntPtr.Zero ? GetCapture() != layer : GetCapture() == IntPtr.Zero, $"Game exit releases pointer capture (FSR={enhanced}).");
-            Require(host.KeyTarget == IntPtr.Zero, $"Game exit clears stale input target (FSR={enhanced}).");
-            Require(GetCursor() != IntPtr.Zero, $"Pointer returns immediately without leaving the desk (FSR={enhanced}).");
+            Require(layer != IntPtr.Zero ? GetCapture() != layer : GetCapture() == IntPtr.Zero, $"Game exit releases pointer capture.");
+            Require(host.KeyTarget == IntPtr.Zero, $"Game exit clears stale input target.");
+            Require(GetCursor() != IntPtr.Zero, $"Pointer returns immediately without leaving the desk.");
         }
         finally
         {
@@ -219,123 +229,6 @@ internal static partial class Program
                 foreach (var kind in new[] { "mouse", "key" }) File.Delete(Path.Combine(AppContext.BaseDirectory, $"client-{client.Id}.{kind}"));
             }
             File.Delete(Marker);
-        }
-    }
-
-    private static void TestSuperResolution(App app)
-    {
-        var main = NewDesk(app);
-        var clientStart = Clients.Count;
-        try
-        {
-            main.WindowState = WindowState.Maximized;
-            main.Show();
-            Pump();
-            Get<DispatcherTimer>(main, "_timer").Stop();
-            File.WriteAllText(Marker, "CgDesk regression client marker");
-            var client = StartClient();
-            Call(main, "RefreshStatus");
-            var host = Get<GameHost>(main, "_mainHost");
-            Wait(() => GameEmbedder.IsAttached(client.Handle, host.HostHandle), "FSR fixture is embedded before enhancement.");
-            ((System.Windows.Controls.CheckBox)main.FindName("EnhanceBox")).IsChecked = true;
-            Wait(() => FsrSurface.IsPresenting || FsrSurface.Failed, "FSR pipeline reports a render result.");
-            Console.WriteLine($"FSR presenting: {FsrSurface.IsPresenting}; failure: {FsrSurface.LastError}");
-            if (!FsrSurface.IsPresenting)
-            {
-                foreach (var method in new[] { "StyleOf", "ExStyleOf" })
-                    Console.WriteLine($"Capture source {method}: {typeof(GameEmbedder).GetMethod(method, BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [client.Handle]):X}");
-                Console.WriteLine($"Capture source ready: {GameEmbedder.IsReady(client.Handle)}; process {client.ProcessId}; handle {client.Handle:X}; visible {NativeMethods.IsWindowVisible(client.Handle)}");
-            }
-            Require(FsrSurface.IsPresenting, "Embedded client produces real FSR frames.");
-            Wait(() => Get<bool>(main, "_upscaleLive"), "FSR output activates the expanded viewport.");
-            var viewport = (Border)main.FindName("MainViewport");
-            var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(main);
-            Console.WriteLine($"FSR viewport: {viewport.ActualWidth * dpi.DpiScaleX:0} x {viewport.ActualHeight * dpi.DpiScaleY:0}");
-            Require(viewport.ActualWidth * dpi.DpiScaleX > 800 && viewport.ActualHeight * dpi.DpiScaleY > 600, "FSR output grows beyond the original 800x600 image.");
-            Wait(() => FsrSurface.Failed || (FsrSurface.RenderedFrames >= 3
-                && Math.Abs(FsrSurface.OutputSize.Width - viewport.ActualWidth * dpi.DpiScaleX) <= 2
-                && Math.Abs(FsrSurface.OutputSize.Height - viewport.ActualHeight * dpi.DpiScaleY) <= 2), "FSR swap chain reaches the expanded viewport size.");
-            Require(!FsrSurface.Failed && FsrSurface.IsPresenting, "FSR keeps rendering after its initial expansion: " + FsrSurface.LastError);
-            var oldFrames = FsrSurface.RenderedFrames;
-            main.WindowState = WindowState.Normal;
-            main.Width = Math.Min(1150, SystemParameters.WorkArea.Width);
-            main.Height = Math.Min(900, SystemParameters.WorkArea.Height);
-            Pump();
-            Wait(() => FsrSurface.Failed || (FsrSurface.RenderedFrames > oldFrames + 2
-                && Math.Abs(FsrSurface.OutputSize.Width - viewport.ActualWidth * dpi.DpiScaleX) <= 2), "FSR output resizes with the desk.");
-            Require(!FsrSurface.Failed && FsrSurface.IsPresenting, "Resizing the desk keeps GPU rendering alive: " + FsrSurface.LastError);
-            var sampled = ReadFsrPixel();
-            Console.WriteLine($"FSR output pixel: R={sampled.R}, G={sampled.G}, B={sampled.B}");
-            Require(Math.Abs(sampled.R - 72) < 8 && Math.Abs(sampled.G - 61) < 8 && Math.Abs(sampled.B - 139) < 8, "FSR GPU output contains the captured source image instead of a blank surface.");
-            Require(Math.Abs(FsrSurface.OutputSize.Width * 3 - FsrSurface.OutputSize.Height * 4) <= 8, "Expanded output preserves the 4:3 aspect ratio.");
-            _ = NativeMethods.GetClientRect(client.Handle, out var nativeClient);
-            Require(nativeClient.Right == 800 && nativeClient.Bottom == 600, "Super resolution leaves the game client at 800x600.");
-            Call(main, "FocusSeat", 0);
-            Require(GetNativeFocus() == host.HostHandle, "FSR selection focuses the native IME host.");
-            var fsrWindow = (IntPtr)typeof(FsrSurface).GetField("_hwnd", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
-            var center = new IntPtr(((FsrSurface.OutputSize.Height / 2) << 16) | (FsrSurface.OutputSize.Width / 2));
-            PostMessage(fsrWindow, 0x201, new IntPtr(1), center);
-            PostMessage(fsrWindow, 0x202, IntPtr.Zero, center);
-            Wait(() => ReadFixtureInput(client.ProcessId, "mouse") == "400,300", "FSR forwards clicks to the correct coordinates in the native game.");
-            // A letter may legitimately start Chinese composition in this desktop's
-            // active IME. Use a game function key to test ordinary key forwarding.
-            PostMessage(host.HostHandle, 0x100, new IntPtr(0x77), new IntPtr(0x00420001));
-            PostMessage(host.HostHandle, 0x101, new IntPtr(0x77), new IntPtr(unchecked((int)0xC0420001)));
-            Wait(() => ReadFixtureInput(client.ProcessId, "key") == "119", "FSR mode forwards keyboard messages to the game.");
-            PostImeMessage(host.HostHandle, 0x0286, new IntPtr('中'), new IntPtr(1));
-            PostImeMessage(host.HostHandle, 0x0286, new IntPtr('文'), new IntPtr(1));
-            Wait(() => ReadFixtureInput(client.ProcessId, "text").EndsWith("中文", StringComparison.Ordinal), "FSR mode delivers committed Chinese text to the separate game process.");
-            var fsrGate = typeof(FsrSurface).GetField("Gate", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
-            lock (fsrGate)
-                typeof(FsrSurface).GetMethod("Fail", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, ["Regression: capture interrupted"]);
-            Wait(() => GameEmbedder.IsAttached(client.Handle, host.HostHandle), "Capture failure falls back to a usable native game window.");
-            ((System.Windows.Controls.CheckBox)main.FindName("EnhanceBox")).IsChecked = false;
-            Wait(() => GameEmbedder.IsAttached(client.Handle, host.HostHandle), "Disabling FSR restores native embedding.");
-            Require(!FsrSurface.IsPresenting, "Disabling FSR hides the enlarged output.");
-            ((System.Windows.Controls.CheckBox)main.FindName("EnhanceBox")).IsChecked = true;
-            Wait(() => FsrSurface.Failed || FsrSurface.RenderedFrames >= 2, "FSR can be enabled again after a capture failure.");
-            Require(!FsrSurface.Failed && FsrSurface.IsPresenting, "Retrying enhancement recovers real GPU frames.");
-        }
-        finally
-        {
-            CloseDesk(main);
-            foreach (var client in Clients.Skip(clientStart)) if (!client.HasExited) { client.Kill(); client.WaitForExit(3000); }
-            foreach (var client in Clients.Skip(clientStart))
-                foreach (var kind in new[] { "mouse", "key", "text" })
-                    File.Delete(Path.Combine(AppContext.BaseDirectory, $"client-{client.Id}.{kind}"));
-            if (File.Exists(Marker)) File.Delete(Marker);
-        }
-    }
-
-    private static string ReadFixtureInput(int processId, string kind)
-    {
-        try { return File.ReadAllText(Path.Combine(AppContext.BaseDirectory, $"client-{processId}.{kind}")); }
-        catch (IOException) { return ""; }
-    }
-
-    private static (byte R, byte G, byte B) ReadFsrPixel()
-    {
-        var hiddenStatic = BindingFlags.NonPublic | BindingFlags.Static;
-        var gate = typeof(FsrSurface).GetField("Gate", hiddenStatic)!.GetValue(null)!;
-        lock (gate)
-        {
-            var texture = (Vortice.Direct3D11.ID3D11Texture2D)typeof(FsrSurface).GetField("_easuTex", hiddenStatic)!.GetValue(null)!;
-            var device = (Vortice.Direct3D11.ID3D11Device)typeof(FsrSurface).GetField("_device", hiddenStatic)!.GetValue(null)!;
-            var context = (Vortice.Direct3D11.ID3D11DeviceContext)typeof(FsrSurface).GetField("_context", hiddenStatic)!.GetValue(null)!;
-            var description = texture.Description;
-            description.Usage = Vortice.Direct3D11.ResourceUsage.Staging;
-            description.BindFlags = Vortice.Direct3D11.BindFlags.None;
-            description.CPUAccessFlags = Vortice.Direct3D11.CpuAccessFlags.Read;
-            description.MiscFlags = Vortice.Direct3D11.ResourceOptionFlags.None;
-            using var staging = device.CreateTexture2D(description);
-            context.CopyResource(staging, texture);
-            var mapped = context.Map(staging, 0, Vortice.Direct3D11.MapMode.Read, Vortice.Direct3D11.MapFlags.None);
-            try
-            {
-                var pixel = mapped.DataPointer + (int)(mapped.RowPitch * (description.Height / 10) + description.Width / 10 * 4);
-                return (Marshal.ReadByte(pixel, 2), Marshal.ReadByte(pixel, 1), Marshal.ReadByte(pixel));
-            }
-            finally { context.Unmap(staging, 0); }
         }
     }
 
@@ -553,9 +446,6 @@ internal static partial class Program
                 var clip = WindowThumbs.ClientRect(new WindowInteropHelper(main).Handle, scroller);
                 Require(WindowThumbs.ActiveDestinations.All(rect => rect.Top >= clip.Top && rect.Bottom <= clip.Bottom && rect.Left >= clip.Left && rect.Right <= clip.Right), "Scrolled previews do not paint over the toolbar or footer.");
             }
-            ((System.Windows.Controls.CheckBox)main.FindName("EnhanceBox")).IsChecked = true;
-            Wait(() => FsrSurface.IsPresenting || FsrSurface.Failed, "FSR responds while all 20 clients are connected.");
-            Require(FsrSurface.IsPresenting, $"The selected client renders FSR with 19 other previews. {FsrSurface.LastError}");
             Call(main, "DockToCorner");
             PumpFor(500);
             var mini = (ScrollViewer)main.FindName("MiniScroller");
@@ -573,12 +463,6 @@ internal static partial class Program
             Call(main, "ExpandFromDock");
             PumpFor(300);
             Require(ReadSeats(main).Count == 20, "Expanding the mini console preserves all 20 clients.");
-            Wait(() => FsrSurface.IsPresenting || FsrSurface.Failed, "Expanding the 20-client desk restarts FSR.");
-            Require(FsrSurface.IsPresenting, $"The 20-client desk recovers live FSR after mini mode. {FsrSurface.LastError}");
-            var reportDir = Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "qa");
-            Directory.CreateDirectory(reportDir);
-            File.WriteAllText(Path.Combine(reportDir, enforceClipping ? "multiwindow-after.json" : "multiwindow-before.json"),
-                System.Text.Json.JsonSerializer.Serialize(measurements, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
         }
         finally
         {
@@ -649,7 +533,7 @@ internal static partial class Program
                 File.WriteAllText(Path.Combine(root, "PlayOnline.ini"), $"[Path]\nGame100={game}\n", encoding);
                 Require(LauncherInstall.TryLocate(Path.Combine(root, "launcher.exe"), out var found, out var exe)
                     && found == game && exe == Path.Combine(game, "cg_se_3000.exe"), $"Chinese launcher path loads with encoding {encoding.WebName}.");
-                Require(GameInstallDirectory.FindDirectory(null, Path.Combine(root, "launcher.exe")) == game, $"Enhancement resolves the game directory with encoding {encoding.WebName}.");
+                Require(GameInstallDirectory.FindDirectory(null, Path.Combine(root, "launcher.exe")) == game, $"Launcher resolves the game directory with encoding {encoding.WebName}.");
             }
         }
         finally
@@ -713,7 +597,7 @@ internal static partial class Program
             _ = NativeMethods.GetClientRect(hwnd, out var physicalRect);
             var physicalW = physicalRect.Right - physicalRect.Left;
             var physicalH = physicalRect.Bottom - physicalRect.Top;
-            var posted = FsrSurface.MapPointer(physicalW / 2, physicalH / 2, physicalW, physicalH, physicalW, physicalH);
+            var posted = new IntPtr(((physicalH / 2) << 16) | (physicalW / 2));
             Require(PostMessage(hwnd, 0x201, new IntPtr(1), posted), "Scaled click is delivered to the unaware window.");
             var got = (child.StandardOutput.ReadLine() ?? "").Split('=')[1].Split(',');
             var gotX = int.Parse(got[0], CultureInfo.InvariantCulture);

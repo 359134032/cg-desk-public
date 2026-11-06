@@ -7,8 +7,9 @@ public sealed class AppConfig
     public string GameProcessNames { get; set; } = "cg";
     public bool HotkeysEnabled { get; set; } = true;
     public List<HotkeyChord> Hotkeys { get; set; } = [];
-    public bool EnhanceMainWindow { get; set; }
-    public double EnhanceSharpness { get; set; } = 0.7;
+    public int LaunchWidth { get; set; } = -1;
+    public int LaunchHeight { get; set; } = -1;
+    public int LaunchResolutionSettingsVersion { get; set; }
     public bool? LiveSmallPreview { get; set; }
     public int GuideWidth { get; set; } = 440;
     public int GuideHeight { get; set; } = 720;
