@@ -16,18 +16,59 @@ $rules = [ordered]@{
 $textExtensions = @('.cs', '.csproj', '.xaml', '.manifest', '.json', '.md', '.txt', '.url', '.ps1', '.yml', '.yaml', '.h', '.c', '.cpp', '.py', '.def', '.props', '.targets', '.slnx', '.gitignore', '.conf')
 $findings = [System.Collections.Generic.List[object]]::new()
 
-function Test-Text([string]$Text, [string]$Location, [string]$Scope) {
+function Get-BinaryPathBytes([byte[]]$Data) {
+    # Managed metadata table rows contain numeric indices, not path strings.
+    # Preserve string/user-string/blob heaps, IL, resources and debug records.
+    $masked = [byte[]]$Data.Clone()
+    $stream = $null
+    $pe = $null
+    try {
+        $stream = [IO.MemoryStream]::new($Data, $false)
+        $pe = [Reflection.PortableExecutable.PEReader]::new($stream)
+        if (!$pe.HasMetadata) { return ,$Data }
+        $rva = $pe.PEHeaders.CorHeader.MetadataDirectory.RelativeVirtualAddress
+        $metadata = -1
+        foreach ($section in $pe.PEHeaders.SectionHeaders) {
+            if ($rva -ge $section.VirtualAddress -and $rva -lt $section.VirtualAddress + $section.SizeOfRawData) {
+                $metadata = $section.PointerToRawData + $rva - $section.VirtualAddress
+                break
+            }
+        }
+        if ($metadata -lt 0 -or [BitConverter]::ToUInt32($Data, $metadata) -ne 0x424A5342) { return ,$Data }
+        $cursor = $metadata + 16 + [BitConverter]::ToInt32($Data, $metadata + 12)
+        $count = [BitConverter]::ToUInt16($Data, $cursor + 2)
+        $cursor += 4
+        for ($index = 0; $index -lt $count; $index++) {
+            $start = $metadata + [BitConverter]::ToInt32($Data, $cursor)
+            $size = [BitConverter]::ToInt32($Data, $cursor + 4)
+            $nameStart = $cursor + 8
+            $end = $nameStart
+            while ($Data[$end] -ne 0) { $end++ }
+            $name = [Text.Encoding]::ASCII.GetString($Data, $nameStart, $end - $nameStart)
+            if ($name -in @('#~', '#-')) {
+                if ($start -lt 0 -or $size -lt 0 -or $start + [long]$size -gt $Data.Length) { return ,$Data }
+                [Array]::Clear($masked, $start, $size)
+            }
+            $cursor = $nameStart + [int]([Math]::Ceiling(($end - $nameStart + 1) / 4.0) * 4)
+        }
+        return ,$masked
+    }
+    catch { return ,$Data } # Unsupported/malformed files keep the full scan.
+    finally { if ($pe) { $pe.Dispose() }; if ($stream) { $stream.Dispose() } }
+}
+
+function Test-Text([string]$Text, [string]$Location, [string]$Scope, [string]$PathText = $null) {
     foreach ($rule in $rules.GetEnumerator()) {
-        foreach ($match in [regex]::Matches($Text, $rule.Value)) {
+        $scanText = if ($rule.Key -eq 'personal-path' -and $PathText) { $PathText } else { $Text }
+        foreach ($match in [regex]::Matches($scanText, $rule.Value)) {
             if ($rule.Key -eq 'personal-path' -and [IO.Path]::GetExtension($Location) -in @('.dll', '.exe', '.pdb')) {
                 # Arbitrary PE/resource bytes can resemble a drive prefix. A
-                # binary path finding must contain a readable component followed
-                # by a path separator or text terminator, not an IL control byte.
+                # binary path finding must also contain a readable path component.
                 # Text-source rules remain unchanged, including bare drive roots.
-                $tail = $Text.Substring($match.Index, [Math]::Min(512, $Text.Length - $match.Index))
-                if ($match.Value -match '^[A-Za-z]:[\\/]' -and $tail -notmatch '^[A-Za-z]:[\\/][\p{L}\p{N}_ .()@+\-\[\]]{2,}(?:[\\/]|\x00|\r|\n|["''])') { continue }
+                $tail = $scanText.Substring($match.Index, [Math]::Min(512, $scanText.Length - $match.Index))
+                if ($match.Value -match '^[A-Za-z]:[\\/]' -and $tail -notmatch '^[A-Za-z]:[\\/][\p{L}\p{N}_ .()@+\-\[\]]{2,}') { continue }
             }
-            $line = 1 + ([regex]::Matches($Text.Substring(0, $match.Index), "`n")).Count
+            $line = 1 + ([regex]::Matches($scanText.Substring(0, $match.Index), "`n")).Count
             # Never emit the matching value, including when a real credential is found.
             $findings.Add([pscustomobject]@{ Scope = $Scope; Location = $Location; Line = $line; Rule = $rule.Key })
         }
@@ -77,14 +118,14 @@ try {
                 # Inspect app-owned binaries and text; third-party runtime binaries are outside this source audit.
                 if ([IO.Path]::GetExtension($entry.FullName) -in $textExtensions -or $entry.Name -in @('CgDesk.dll', 'CgDesk.pdb', 'ddraw.dll')) {
                     $stream = $entry.Open()
-                    $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::UTF8)
-                    try { Test-Text ($reader.ReadToEnd()) $entry.FullName 'package' }
-                    finally { $reader.Dispose(); $stream.Dispose() }
-                    if ($entry.Name -in @('CgDesk.dll', 'CgDesk.pdb', 'ddraw.dll')) {
-                        $stream = $entry.Open()
-                        $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::Unicode, $false)
-                        try { Test-Text ($reader.ReadToEnd()) $entry.FullName 'package-utf16' }
-                        finally { $reader.Dispose(); $stream.Dispose() }
+                    $buffer = [IO.MemoryStream]::new()
+                    try { $stream.CopyTo($buffer); $data = $buffer.ToArray() }
+                    finally { $buffer.Dispose(); $stream.Dispose() }
+                    $binary = $entry.Name -in @('CgDesk.dll', 'CgDesk.pdb', 'ddraw.dll')
+                    $pathData = if ($binary) { Get-BinaryPathBytes $data } else { $data }
+                    Test-Text ([Text.Encoding]::UTF8.GetString($data)) $entry.FullName 'package' ([Text.Encoding]::UTF8.GetString($pathData))
+                    if ($binary) {
+                        Test-Text ([Text.Encoding]::Unicode.GetString($data)) $entry.FullName 'package-utf16' ([Text.Encoding]::Unicode.GetString($pathData))
                     }
                 }
             }
