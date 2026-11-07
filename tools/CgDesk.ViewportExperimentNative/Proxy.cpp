@@ -11,6 +11,8 @@
 #include "MapCacheFix.h"
 #include "GraphicsDiagnostics.h"
 #include "TransitionBufferFix.h"
+#include "BattleLayoutFix.h"
+#include "TransitionSpeedFix.h"
 
 #pragma intrinsic(_ReturnAddress)
 static_assert(sizeof(void*) == 4, "The experiment must be built for x86.");
@@ -87,7 +89,9 @@ struct Snapshot {
 
 bool Rollback(Snapshot* snapshot) {
     InterlockedExchange(&status.RollbackAttempted, 1);
-    bool restored = RollbackTransitionBufferFix();
+    bool restored = RollbackTransitionSpeedFix();
+    if(!RollbackBattleLayoutFix())restored=false;
+    if(!RollbackTransitionBufferFix())restored=false;
     if(!RollbackMapCacheFix())restored=false;
     __try {
         for (unsigned i = 0; i < ARRAYSIZE(snapshot->addresses); ++i) {
@@ -137,6 +141,8 @@ void TryApplyProfile(void* returnAddress, void** output) {
         }
         if (NeedsExpandedCache() && !ValidateMapCacheFix()) { guard = GuardMapCache; __leave; }
         if (Height > 1023 && !ValidateTransitionBufferFix()) { guard = GuardTransitionBuffers; __leave; }
+        if (Width > 800 && !ValidateBattleLayoutFix()) { guard = GuardBattleLayout; __leave; }
+        if (Width > 800 && !ValidateTransitionSpeedFix()) { guard = GuardTransitionSpeed; __leave; }
         if (!Accessible(Windowed, sizeof(DWORD), false) || *reinterpret_cast<DWORD*>(Windowed) != 1) { guard = GuardNotWindowed; __leave; }
         if (!Accessible(GameWindow, sizeof(HWND), false)) { guard = GuardInvalidWindow; __leave; }
         snapshot.window = *reinterpret_cast<HWND*>(GameWindow);
@@ -200,6 +206,8 @@ void TryApplyProfile(void* returnAddress, void** output) {
         RECT client{};
         if (!GetClientRect(snapshot.window, &client) || client.right != Width || client.bottom != Height) { guard = GuardWindowGeometry; __leave; }
         if (Height > 1023 && !ApplyTransitionBufferFix()) { guard = GuardTransitionBuffers; __leave; }
+        if (Width > 800 && !ApplyBattleLayoutFix()) { guard = GuardBattleLayout; __leave; }
+        if (Width > 800 && !ApplyTransitionSpeedFix()) { guard = GuardTransitionSpeed; __leave; }
         if (NeedsExpandedCache() && !ApplyMapCacheFix()) { guard = GuardMapCache; __leave; }
         InterlockedExchange(&status.Applied, 1);
         InterlockedExchange(&applyState, 2);
@@ -253,7 +261,7 @@ extern "C" HRESULT WINAPI CgDeskDirectDrawCreateEx(GUID* guid, void** output, RE
         return E_FAIL;
     }
     TryApplyProfile(_ReturnAddress(), output);
-    if (!GraphicsDiagnosticsHealthy() || !TransitionBufferFixHealthy() || !GetMapCacheDiagnostics().ProtectionRestored ||
+    if (!GraphicsDiagnosticsHealthy() || !TransitionBufferFixHealthy() || !BattleLayoutFixHealthy() || !TransitionSpeedFixHealthy() || !GetMapCacheDiagnostics().ProtectionRestored ||
         (status.RollbackAttempted && !status.RollbackSucceeded)) {
         status.LastForwardResult = E_FAIL;
         return E_FAIL;

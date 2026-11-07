@@ -1,6 +1,7 @@
 param(
     [string]$CapturePath = (Join-Path $PSScriptRoot '..\..\artifacts\viewport-research\runtime-72316-20261106-042053-1f8731d2\code-section-00-text.bin'),
-    [string]$CaptureSha256 = '1e7f13e748c792586c7db2eb21d26d19f710bafecea02df6c2d6e44ad136d427'
+    [string]$CaptureSha256 = '1e7f13e748c792586c7db2eb21d26d19f710bafecea02df6c2d6e44ad136d427',
+    [switch]$SkipBundleUpdate
 )
 $ErrorActionPreference = 'Stop'
 $source = [IO.Path]::GetFullPath($PSScriptRoot)
@@ -103,7 +104,11 @@ $batch = @(
     'if errorlevel 1 exit /b %errorlevel%',
     ('cl /nologo /W4 /WX /O2 /MT /c /EHsc /DUNICODE /D_UNICODE /Fo"{0}\TransitionBufferFix.obj" "{1}\TransitionBufferFix.cpp"' -f $output, $source),
     'if errorlevel 1 exit /b %errorlevel%',
-    ('link /nologo /DLL "{0}\Proxy.obj" "{0}\D3DSeamFix.obj" "{0}\MapCacheFix.obj" "{0}\GraphicsDiagnostics.obj" "{0}\TransitionBufferFix.obj" dxguid.lib user32.lib kernel32.lib /DEF:"{0}\ddraw.local.def" /OUT:"{0}\ddraw.local.dll" /IMPLIB:"{0}\ddraw.local.lib" /MACHINE:X86 /DYNAMICBASE /NXCOMPAT /INCREMENTAL:NO' -f $output),
+    ('cl /nologo /W4 /WX /O2 /MT /c /EHsc /DUNICODE /D_UNICODE /Fo"{0}\BattleLayoutFix.obj" "{1}\BattleLayoutFix.cpp"' -f $output, $source),
+    'if errorlevel 1 exit /b %errorlevel%',
+    ('cl /nologo /W4 /WX /O2 /MT /c /EHsc /DUNICODE /D_UNICODE /Fo"{0}\TransitionSpeedFix.obj" "{1}\TransitionSpeedFix.cpp"' -f $output, $source),
+    'if errorlevel 1 exit /b %errorlevel%',
+    ('link /nologo /DLL "{0}\Proxy.obj" "{0}\D3DSeamFix.obj" "{0}\MapCacheFix.obj" "{0}\GraphicsDiagnostics.obj" "{0}\TransitionBufferFix.obj" "{0}\BattleLayoutFix.obj" "{0}\TransitionSpeedFix.obj" dxguid.lib user32.lib kernel32.lib /DEF:"{0}\ddraw.local.def" /OUT:"{0}\ddraw.local.dll" /IMPLIB:"{0}\ddraw.local.lib" /MACHINE:X86 /DYNAMICBASE /NXCOMPAT /INCREMENTAL:NO' -f $output),
     'if errorlevel 1 exit /b %errorlevel%',
     ('cl /nologo /W4 /WX /O2 /MT /EHsc /DUNICODE /D_UNICODE /Fo"{0}\SmokeHost.obj" /Fe"{0}\ViewportSmokeHost.exe" "{1}\SmokeHost.cpp" /link dxguid.lib /MACHINE:X86 /DYNAMICBASE /NXCOMPAT /INCREMENTAL:NO' -f $output, $source),
     'if errorlevel 1 exit /b %errorlevel%',
@@ -131,7 +136,9 @@ $metadata = [ordered]@{
 [IO.File]::WriteAllText((Join-Path $output 'build-profile.json'), ($metadata | ConvertTo-Json -Depth 6))
 $bundled = Join-Path $source '..\..\src\CgDesk\Native\Viewport'
 [IO.Directory]::CreateDirectory($bundled) | Out-Null
-Copy-Item -LiteralPath (Join-Path $output 'ddraw.dll') -Destination (Join-Path $bundled 'ddraw.dll') -Force
-Copy-Item -LiteralPath (Join-Path $output 'build-profile.json') -Destination (Join-Path $bundled 'build-profile.json') -Force
+if(-not $SkipBundleUpdate){
+    Copy-Item -LiteralPath (Join-Path $output 'ddraw.dll') -Destination (Join-Path $bundled 'ddraw.dll') -Force
+    Copy-Item -LiteralPath (Join-Path $output 'build-profile.json') -Destination (Join-Path $bundled 'build-profile.json') -Force
+}
 Write-Output ('Built configurable native viewport component: ' + (Join-Path $output 'ddraw.dll'))
 Write-Output ('Built independent smoke host: ' + (Join-Path $output 'ViewportSmokeHost.exe'))

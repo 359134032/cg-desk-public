@@ -10,7 +10,7 @@ enum ViewportGuard : DWORD {
     GuardAlreadyInitialized = 9, GuardUnsupportedDimensions = 10,
     GuardUnwritableData = 11, GuardWindowGeometry = 12,
     GuardAlreadyApplied = 13, GuardPreviousFailure = 14, GuardException = 15,
-    GuardMapCache = 17, GuardTransitionBuffers = 18
+    GuardMapCache = 17, GuardTransitionBuffers = 18, GuardBattleLayout = 19, GuardTransitionSpeed = 20
 };
 
 struct ViewportStatus {

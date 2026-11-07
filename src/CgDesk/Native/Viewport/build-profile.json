@@ -4,7 +4,7 @@
   "OriginalExecutableSha256": "9baa0d2660f96c6699ccf42ad46bd918717b98ccb228f4edde2d92afb89d3126",
   "CaptureSha256": "1e7f13e748c792586c7db2eb21d26d19f710bafecea02df6c2d6e44ad136d427",
   "SystemDirectDrawSha256": "cc8687345e7ac20c2dcd21321634c191a035d145f442d0a403584fd77e72b1a1",
-  "ProxySha256": "d8015f92c73d6489347cf1bae1b39335c3f364de5dc944f6c314ea2a131c96be",
+  "ProxySha256": "0b7a1960111b7b7ac4b1392b167963a029d323ceb677956eb63ce42c0a2732cb",
   "SystemExports": [
     {
       "Name": "AcquireDDThreadLock",

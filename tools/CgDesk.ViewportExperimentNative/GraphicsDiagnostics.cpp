@@ -7,6 +7,8 @@
 #include "MapCacheFix.h"
 #include "D3DSeamFix.h"
 #include "TransitionBufferFix.h"
+#include "BattleLayoutFix.h"
+#include "TransitionSpeedFix.h"
 
 namespace {
 wchar_t outputPath[32768]{};
@@ -82,6 +84,7 @@ struct Snapshot {
     LONG windowLeft,windowTop;
     DWORD childWindow;
     DWORD transition[9];
+    LONG battle[5];
     MapCacheDiagnostics cache;
     D3DSeamFixStatus drawing;
 };
@@ -107,6 +110,8 @@ bool Capture(Snapshot* value) noexcept {
         for(unsigned i=0;i<6;i++)value->transition[i+1]=*reinterpret_cast<volatile DWORD*>(transitionFields[i]);
         value->transition[7]=*reinterpret_cast<volatile BYTE*>(0xa55c4a);
         value->transition[8]=*reinterpret_cast<volatile short*>(0x1113190);
+        value->battle[0]=BattleLayoutFixCalls();
+        for(unsigned i=0;i<4;i++)value->battle[i+1]=*reinterpret_cast<volatile LONG*>(0x68e340+i*4);
         HWND window=*reinterpret_cast<volatile HWND*>(0xa526ac);
         RECT rectangle{};
         if(IsWindow(window)&&GetWindowRect(window,&rectangle)){
@@ -138,7 +143,7 @@ DWORD WINAPI Run(void*) {
                 "\"wait\":[%lu,%lu],\"restore\":[%lu,%lu],\"context\":%lu,\"viewport\":[%lu,%lu],"
                 "\"sheet\":[%d,%d],\"surfaces\":[%lu,%lu],\"cache\":[%ld,%lu,%ld,%ld,%ld,%lu],"
                 "\"draw\":[%ld,%ld,%ld,%ld,%ld],\"lock\":[%d,%ld,%ld,%ld],\"placement\":[%ld,%ld,%lu],"
-                "\"transition\":[%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu]}\n",
+                "\"transition\":[%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu],\"battle\":[%ld,%ld,%ld,%ld,%ld],\"transitionSpeedCalls\":%ld}\n",
                 GetTickCount64(),GetCurrentProcessId(),s.width,s.height,s.windowWidth,s.windowHeight,
                 s.map0,s.map1,s.mapWidth,s.mapHeight,s.bounds[0],s.bounds[1],s.bounds[2],s.bounds[3],s.bounds[4],s.bounds[5],
                 s.waitScan,s.waitMap,s.restorePending,s.inputReset,s.context,s.contextWidth,s.contextHeight,s.sheetWidth,s.sheetHeight,
@@ -148,7 +153,8 @@ DWORD WINAPI Run(void*) {
                 InterlockedCompareExchange(&lockCalls,0,0),InterlockedCompareExchange(&lockFailures,0,0),InterlockedCompareExchange(&lastLock,0,0),
                 s.windowLeft,s.windowTop,s.childWindow,
                 s.transition[0],s.transition[1],s.transition[2],s.transition[3],s.transition[4],
-                s.transition[5],s.transition[6],s.transition[7],s.transition[8]);
+                s.transition[5],s.transition[6],s.transition[7],s.transition[8],
+                s.battle[0],s.battle[1],s.battle[2],s.battle[3],s.battle[4],TransitionSpeedFixCalls());
             if(count>0){
                 HANDLE file=CreateFileW(outputPath,FILE_APPEND_DATA,FILE_SHARE_READ,nullptr,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
                 if(file!=INVALID_HANDLE_VALUE){

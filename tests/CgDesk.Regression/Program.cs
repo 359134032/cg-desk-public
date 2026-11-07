@@ -29,11 +29,12 @@ internal static partial class Program
         }
         // Development-only installer host: use the same ownership and version
         // guards as the launcher, without starting the game or its login UI.
-        if (args.Length is 4 or 5 && args[0] == "--prepare-viewport")
+        if (args.Length is 4 or 5 or 6 && args[0] == "--prepare-viewport")
         {
             var mode = new LaunchResolution(int.Parse(args[2], CultureInfo.InvariantCulture),
                 int.Parse(args[3], CultureInfo.InvariantCulture));
-            Console.WriteLine(new ViewportLaunchFiles().Prepare(args[1], mode, args.Length == 5 ? args[4] : null));
+            Console.WriteLine(new ViewportLaunchFiles(bundle: args.Length == 6 ? args[5] : null)
+                .Prepare(args[1], mode, args.Length >= 5 ? args[4] : null));
             return 0;
         }
         if (File.Exists(Marker)) throw new InvalidOperationException("Test marker already exists; use a clean test output directory.");

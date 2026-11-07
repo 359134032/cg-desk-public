@@ -60,7 +60,7 @@ public partial class MainWindow
         var mode = ResolutionBox.SelectedItem as LaunchResolution;
         ResolutionHintText.Text = mode?.Native != false
             ? "已关闭分辨率实验。拖动窗口后使用 FSR 按 4:3 缩放。"
-            : "默认开启：选择屏幕能容纳的最高 4:3 档位，上限 1600×1200；可手动调整或关闭。仅下次启动生效，之后拖动窗口使用 FSR。独立组件会调整运行内存，仍有被检测或封号风险，远处角色范围不保证扩大。";
+            : "默认开启：选择屏幕能容纳的最高 4:3 档位，上限 1600×1200；可手动调整或关闭。仅下次启动生效，之后拖动窗口使用 FSR。较高分辨率可能降低帧率。独立组件会调整运行内存，仍有被检测或封号风险，远处角色范围不保证扩大。";
     }
 
     private bool PrepareLaunchResolution(out string message)
@@ -70,7 +70,7 @@ public partial class MainWindow
         if (!mode.Native && !_resolutionRiskAccepted)
         {
             var answer = System.Windows.MessageBox.Show(this,
-                $"将以 {mode.Width}×{mode.Height} 试运行。\n\n这会在客户端目录新增独立组件，并调整游戏运行内存。不会改写原 EXE 或资源文件，但无法保证不会被客户端保护检测或被认定为外挂。\n\n更远处的角色仍可能受服务端限制。是否继续本次试验？",
+                $"将以 {mode.Width}×{mode.Height} 试运行。\n\n这会在客户端目录新增独立组件，并调整游戏运行内存。不会改写原 EXE 或资源文件，但无法保证不会被客户端保护检测或被认定为外挂。\n\n较高分辨率可能降低帧率，可选择较低档位并使用 FSR 缩放。更远处的角色仍可能受服务端限制。是否继续本次试验？",
                 "实验分辨率风险", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
             if (answer != MessageBoxResult.Yes) { message = "未启用实验分辨率。"; return false; }
             _resolutionRiskAccepted = true;
