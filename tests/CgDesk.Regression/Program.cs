@@ -204,32 +204,39 @@ internal static partial class Program
             Wait(() => host.KeyTarget == client.Handle, "Native game input is ready.");
             GameCursorCloak.Sync(host.HostHandle, client.Handle);
             var layer = (IntPtr)typeof(GameCursorCloak).GetField("_hwnd", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
-            Call(main, "FocusSeat", 0);
-            Require(ForegroundFocus() == client.Handle, "Selecting a native game focuses the embedded client.");
             var toolbar = (Button)main.FindName("ArrangeButton");
-            main.Activate();
+            var desk = new WindowInteropHelper(main).Handle;
+            NativeMethods.Focus(desk);
             toolbar.Focus();
+            Wait(() => ForegroundFocus() == desk, "The test toolbar has foreground input before seat selection.");
+            Call(main, "FocusSeat", 0);
+            Wait(() => ForegroundFocus() == client.Handle || ForegroundFocus() == host.HostHandle,
+                "Selecting a native game establishes its keyboard input route.");
+            CheckHomeAtCurrentFocus(client.ProcessId, ForegroundFocus());
+            NativeMethods.Focus(desk);
+            toolbar.Focus();
+            Wait(() => ForegroundFocus() == desk, "The toolbar owns input before clicking into the native game.");
+            Pump();
             var titleDeactivations = ObserveTitleDeactivations(main);
+            Require(layer != IntPtr.Zero, "The native input surface is available.");
             for (var click = 0; click < 3; click++)
             {
-                ClickFixture(client.Handle, layer);
-                Require(ForegroundFocus() == client.Handle, "A native game click leaves keyboard focus in the game.");
+                ClickFixture(layer);
+                var focus = ForegroundFocus();
+                Require(focus == client.Handle || focus == host.HostHandle, "A native game click retains a game input route.");
             }
             Require(titleDeactivations() == 0, "Repeated native game clicks do not deactivate the desk caption.");
-            CheckHomeAtCurrentFocus(client.ProcessId, client.Handle);
-            if (layer != IntPtr.Zero)
-            {
-                SendMessage(layer, 0x201, new IntPtr(1), new IntPtr((30 << 16) | 30));
-                Require(GetCapture() == layer, "A held game click captures the pointer.");
-                SendMessage(layer, 0x20, layer, new IntPtr(1));
-            }
-            else SetCursor(IntPtr.Zero);
+            Wait(() => ReadFixtureInput(client.ProcessId, "mouse").Length > 0, "The native game receives the mouse click through its input surface.");
+            CheckHomeAtCurrentFocus(client.ProcessId, ForegroundFocus());
+            SendMessage(layer, 0x201, new IntPtr(1), new IntPtr((30 << 16) | 30));
+            Require(GetCapture() == layer, "A held game click captures the pointer.");
+            SendMessage(layer, 0x20, layer, new IntPtr(1));
             Require(GetCursor() == IntPtr.Zero, "The game exit starts with an invisible pointer.");
             PostMessage(client.Handle, 0x10, IntPtr.Zero, IntPtr.Zero);
             Wait(() => !NativeMethods.IsWindow(client.Handle), "Game exits before pointer cleanup.");
             Call(main, "RefreshStatus");
             Call(main, "SyncGameCloak");
-            Require(layer != IntPtr.Zero ? GetCapture() != layer : GetCapture() == IntPtr.Zero, $"Game exit releases pointer capture.");
+            Require(GetCapture() != layer, "Game exit releases pointer capture.");
             Require(host.KeyTarget == IntPtr.Zero, $"Game exit clears stale input target.");
             Require(GetCursor() != IntPtr.Zero, $"Pointer returns immediately without leaving the desk.");
         }

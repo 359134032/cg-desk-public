@@ -170,6 +170,7 @@ internal static partial class Program
     private static void CheckHomeAtCurrentFocus(int processId, IntPtr expectedFocus)
     {
         Require(ForegroundFocus() == expectedFocus, "The foreground input queue targets the game's keyboard destination.");
+        File.Delete(Path.Combine(AppContext.BaseDirectory, $"client-{processId}.key"));
         keybd_event(0x24, 0x47, 0x01, UIntPtr.Zero); // Extended Home down, then up.
         keybd_event(0x24, 0x47, 0x03, UIntPtr.Zero);
         Wait(() => ReadFixtureInput(processId, "key") == "36", "The game receives extended Home after clicking.");
@@ -187,7 +188,7 @@ internal static partial class Program
         return () => deactivations;
     }
 
-    private static void ClickFixture(IntPtr window, IntPtr overlay = default, bool rightButton = false)
+    private static void ClickFixture(IntPtr window, bool rightButton = false)
     {
         var saved = System.Windows.Forms.Cursor.Position;
         try
@@ -196,7 +197,7 @@ internal static partial class Program
             var center = new System.Drawing.Point((bounds.Left + bounds.Right) / 2, (bounds.Top + bounds.Bottom) / 2);
             System.Windows.Forms.Cursor.Position = center;
             var hit = WindowFromPoint(center);
-            if (hit == IntPtr.Zero || (hit != window && hit != overlay))
+            if (hit != window || hit == IntPtr.Zero)
                 throw new InvalidOperationException($"Test window is covered at {center} (expected {window:X}, hit {hit:X}).");
             mouse_event(rightButton ? 0x0008u : 0x0002u, 0, 0, 0, UIntPtr.Zero);
             mouse_event(rightButton ? 0x0010u : 0x0004u, 0, 0, 0, UIntPtr.Zero);

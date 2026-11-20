@@ -112,6 +112,22 @@ internal sealed class GameHost : HwndHost
 
     private IntPtr OnHostMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
+        if (msg == 0x0210 && (wParam.ToInt64() & 0xFFFF) is 0x0201 or 0x0204 or 0x0207 or 0x020B)
+        {
+            var game = KeyTarget;
+            if (GameEmbedder.IsAttached(game, hwnd))
+            {
+                // Let the child handle its click first. Only repair focus if
+                // Windows left keyboard input on the desk after the click.
+                Dispatcher.BeginInvoke(() =>
+                {
+                    if (KeyTarget == game && GameEmbedder.IsAttached(game, hwnd)
+                        && NativeMethods.GetForegroundWindow() == GetAncestor(hwnd, 2)
+                        && GetFocus() != game)
+                        FocusInput();
+                }, System.Windows.Threading.DispatcherPriority.Input);
+            }
+        }
         if (msg == 0x010D) // WM_IME_STARTCOMPOSITION
         {
             _imeComposing = true;
@@ -229,6 +245,9 @@ internal sealed class GameHost : HwndHost
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetFocus();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
 
     [DllImport("imm32.dll")]
     private static extern bool ImmAssociateContextEx(IntPtr hwnd, IntPtr context, uint flags);
@@ -814,13 +833,13 @@ internal static class GameEmbedder
         return (uint)GetWindowLong(hwnd, ExStyleIndex);
     }
 
-    public static void Focus(IntPtr game)
+    public static bool TryFocus(IntPtr game)
     {
-        // SetParent already joins the input queues. Complete the handoff before
-        // another seat or presentation mode can replace this embedded client.
-        if (GetFocus() != game && Placed.TryGetValue(game, out var place) && IsAttached(game, place.Host)
-            && NativeMethods.Responds(game))
-            _ = SetFocus(game);
+        if (!Placed.TryGetValue(game, out var place) || !IsAttached(game, place.Host)) return false;
+        if (NativeMethods.GetForegroundWindow() == game || GetFocus() == game) return true;
+        if (!NativeMethods.Responds(game)) return false;
+        _ = SetFocus(game);
+        return GetFocus() == game;
     }
 
     [DllImport("user32.dll")]
@@ -896,9 +915,9 @@ internal static class GameCursorCloak
     private const int RightUp = 0x0205;
     private const int MiddleDown = 0x0207;
     private const int MiddleUp = 0x0208;
-    private const int LeftButton = 0x0001;
-    private const int RightButton = 0x0002;
-    private const int MiddleButton = 0x0010;
+    private const int XDown = 0x020B;
+    private const int XUp = 0x020C;
+    private const int ButtonMask = 0x0073;
 
     private static IntPtr _hwnd;
     private static IntPtr _host;
@@ -979,6 +998,7 @@ internal static class GameCursorCloak
 
         _hwnd = IntPtr.Zero;
         _host = IntPtr.Zero;
+        _width = _height = 0;
     }
 
     private static void Ensure(IntPtr host)
@@ -1009,7 +1029,9 @@ internal static class GameCursorCloak
         if (_hwnd != IntPtr.Zero)
         {
             _ = SetWindowLongPtr(_hwnd, -4, Marshal.GetFunctionPointerForDelegate(_proc));
-            _ = SetLayeredWindowAttributes(_hwnd, 0, 0, Alpha);
+            // Fully transparent layered pixels pass clicks through to the
+            // foreign input queue, briefly deactivating the desk on each click.
+            _ = SetLayeredWindowAttributes(_hwnd, 0, 1, Alpha);
         }
     }
 
@@ -1025,6 +1047,7 @@ internal static class GameCursorCloak
             Style = DoubleClicks,
             WndProc = GetProcAddress(GetModuleHandle("user32.dll"), "DefWindowProcW"),
             Instance = GetModuleHandle(null),
+            Background = GetStockObject(4), // BLACK_BRUSH supplies uniform pixels for layered hit testing.
             ClassName = "CgDeskCloak"
         };
         _classReady = RegisterClass(ref wndClass) != 0 || Marshal.GetLastWin32Error() == 1410;
@@ -1053,7 +1076,7 @@ internal static class GameCursorCloak
             GamePointer.ReleaseOwnedCapture(hwnd);
             GamePointer.RestoreArrow();
         }
-        if (msg is LeftUp or RightUp or MiddleUp && (wParam.ToInt32() & (LeftButton | RightButton | MiddleButton)) == 0)
+        if (msg is LeftUp or RightUp or MiddleUp or XUp && (wParam.ToInt32() & ButtonMask) == 0)
             GamePointer.ReleaseOwnedCapture(hwnd);
         if (msg is >= MouseFirst and <= MouseLast && (_game == IntPtr.Zero || !IsWindow(_game)))
         {
@@ -1062,9 +1085,8 @@ internal static class GameCursorCloak
         }
         if (msg is >= MouseFirst and <= MouseLast && _game != IntPtr.Zero && IsWindow(_game))
         {
-            if (msg is LeftDown or RightDown or MiddleDown)
+            if (msg is LeftDown or RightDown or MiddleDown or XDown or 0x0203 or 0x0206 or 0x0209 or 0x020D)
             {
-                GameEmbedder.Focus(_game);
                 _ = SetCapture(hwnd);
             }
 
@@ -1133,6 +1155,9 @@ internal static class GameCursorCloak
 
     [DllImport("user32.dll")]
     private static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint key, byte alpha, uint flags);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr GetStockObject(int index);
 
     [DllImport("user32.dll")]
     private static extern IntPtr SetCursor(IntPtr cursor);

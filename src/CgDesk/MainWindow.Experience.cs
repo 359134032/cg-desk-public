@@ -28,9 +28,12 @@ public partial class MainWindow
     private void FocusPrimaryInput()
     {
         if (_mainHost == null || !IsMainConnected) return;
-        if (!IsActive) Activate();
-        if (UseCapturedMain) _mainHost.FocusInput();
-        else GameEmbedder.Focus(_primaryHandle);
+        var foreground = NativeMethods.GetForegroundWindow();
+        if (foreground != _deskHandle && (UseCapturedMain || foreground != _primaryHandle))
+            Activate();
+        // Some cross-process children have a separate input queue. Route keys
+        // through the native host when Windows declines direct focus.
+        if (UseCapturedMain || !GameEmbedder.TryFocus(_primaryHandle)) _mainHost.FocusInput();
     }
 
     private string WindowLabel(GameWindow window) => _windowLabels.TryGetValue(window.Handle, out var label) ? label : window.Title;
