@@ -62,13 +62,6 @@ public partial class MainWindow : Window
         _updateService = updateService;
         InitializeComponent();
         _mainHost = new GameHost();
-        _mainHost.Clicked += () =>
-        {
-            if (!ReferenceEquals(Keyboard.FocusedElement, _mainHost))
-            {
-                Keyboard.Focus(_mainHost);
-            }
-        };
         MainViewport.Child = _mainHost;
         _scaleTimer.Tick += (_, _) => UpdatePresentationFit();
         _selfPid = Process.GetCurrentProcess().Id;
@@ -665,7 +658,6 @@ public partial class MainWindow : Window
                 if (embedded && fresh)
                 {
                     FocusPrimaryInput();
-                    GameEmbedder.NudgeActive(_primaryHandle);
                 }
                 SetConnectionError(embedded ? "" : GameEmbedder.LastError);
                 ConnectionStateText.Text = embedded

@@ -27,10 +27,10 @@ public partial class MainWindow
 
     private void FocusPrimaryInput()
     {
-        if (!UseCapturedMain) { GameEmbedder.Focus(_primaryHandle); return; }
-        Activate();
-        _mainHost?.FocusInput();
-        GameEmbedder.NudgeActive(_primaryHandle);
+        if (_mainHost == null || !IsMainConnected) return;
+        if (!IsActive) Activate();
+        if (UseCapturedMain) _mainHost.FocusInput();
+        else GameEmbedder.Focus(_primaryHandle);
     }
 
     private string WindowLabel(GameWindow window) => _windowLabels.TryGetValue(window.Handle, out var label) ? label : window.Title;

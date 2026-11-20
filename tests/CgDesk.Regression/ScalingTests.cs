@@ -28,6 +28,8 @@ internal static partial class Program
             // Once borderless, give the fixture the game's exact drawing size.
             NativeMethods.SetWindowPos(client.Handle, IntPtr.Zero, 0, 0, 800, 600,
                 NativeMethods.SwpNoMove | NativeMethods.SwpNoZOrder);
+            // Finish automatic sizing for the final fixture dimensions before the manual resize.
+            Call(main, "RefreshStatus");
             Call(main, "ApplyNativeFrame");
             Pump();
             Call(main, "EnableFsrForResize");
@@ -71,9 +73,19 @@ internal static partial class Program
             Require(GetNativeFocus() == host.HostHandle, "FSR selection focuses the native IME host.");
             var fsrWindow = (IntPtr)typeof(FsrSurface).GetField("_hwnd", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
             var center = new IntPtr(((FsrSurface.OutputSize.Height / 2) << 16) | (FsrSurface.OutputSize.Width / 2));
-            PostMessage(fsrWindow, 0x201, new IntPtr(1), center);
-            PostMessage(fsrWindow, 0x202, IntPtr.Zero, center);
+            var toolbar = (System.Windows.Controls.Button)main.FindName("ArrangeButton");
+            toolbar.Focus();
+            Require(GetNativeFocus() != host.HostHandle, "Toolbar interaction moves focus off the FSR input host.");
+            var titleDeactivations = ObserveTitleDeactivations(main);
+            ClickFixture(fsrWindow);
             Wait(() => ReadFixtureInput(client.ProcessId, "mouse") == "400,300", "FSR forwards clicks to the correct coordinates in the native game.");
+            for (var click = 0; click < 3; click++)
+            {
+                ClickFixture(fsrWindow, rightButton: true);
+                Require(GetNativeFocus() == host.HostHandle, "Clicking the FSR surface restores and retains native IME focus.");
+            }
+            Require(titleDeactivations() == 0, "Repeated scaled game clicks do not deactivate the desk caption.");
+            CheckHomeAtCurrentFocus(client.ProcessId, host.HostHandle);
             // A letter may legitimately start Chinese composition in this desktop's
             // active IME. Use a game function key to test ordinary key forwarding.
             PostMessage(host.HostHandle, 0x100, new IntPtr(0x77), new IntPtr(0x00420001));
@@ -153,6 +165,64 @@ internal static partial class Program
     {
         try { return File.ReadAllText(Path.Combine(AppContext.BaseDirectory, $"client-{processId}.{kind}")); }
         catch (IOException) { return ""; }
+    }
+
+    private static void CheckHomeAtCurrentFocus(int processId, IntPtr expectedFocus)
+    {
+        Require(ForegroundFocus() == expectedFocus, "The foreground input queue targets the game's keyboard destination.");
+        keybd_event(0x24, 0x47, 0x01, UIntPtr.Zero); // Extended Home down, then up.
+        keybd_event(0x24, 0x47, 0x03, UIntPtr.Zero);
+        Wait(() => ReadFixtureInput(processId, "key") == "36", "The game receives extended Home after clicking.");
+    }
+
+    private static Func<int> ObserveTitleDeactivations(MainWindow main)
+    {
+        var deactivations = 0;
+        var source = (System.Windows.Interop.HwndSource)PresentationSource.FromVisual(main);
+        source.AddHook((IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled) =>
+        {
+            if (msg == 0x0086 && wParam == IntPtr.Zero) deactivations++; // WM_NCACTIVATE
+            return IntPtr.Zero;
+        });
+        return () => deactivations;
+    }
+
+    private static void ClickFixture(IntPtr window, IntPtr overlay = default, bool rightButton = false)
+    {
+        var saved = System.Windows.Forms.Cursor.Position;
+        try
+        {
+            if (!NativeMethods.GetWindowRect(window, out var bounds)) throw new InvalidOperationException("Missing input fixture.");
+            var center = new System.Drawing.Point((bounds.Left + bounds.Right) / 2, (bounds.Top + bounds.Bottom) / 2);
+            System.Windows.Forms.Cursor.Position = center;
+            var hit = WindowFromPoint(center);
+            if (hit == IntPtr.Zero || (hit != window && hit != overlay))
+                throw new InvalidOperationException($"Test window is covered at {center} (expected {window:X}, hit {hit:X}).");
+            mouse_event(rightButton ? 0x0008u : 0x0002u, 0, 0, 0, UIntPtr.Zero);
+            mouse_event(rightButton ? 0x0010u : 0x0004u, 0, 0, 0, UIntPtr.Zero);
+            PumpFor(100);
+        }
+        finally { System.Windows.Forms.Cursor.Position = saved; }
+    }
+
+    [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(System.Drawing.Point point);
+    [DllImport("user32.dll")] private static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
+    [DllImport("user32.dll")] private static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct GuiThreadInfo
+    {
+        public int Size, Flags;
+        public IntPtr Active, Focus, Capture, MenuOwner, MoveSize, Caret;
+        public NativeMethods.RectNative CaretRect;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetGUIThreadInfo(uint thread, ref GuiThreadInfo info);
+
+    private static IntPtr ForegroundFocus()
+    {
+        var info = new GuiThreadInfo { Size = Marshal.SizeOf<GuiThreadInfo>() };
+        return GetGUIThreadInfo(0, ref info) ? info.Focus : IntPtr.Zero;
     }
 
     private static (byte R, byte G, byte B) ReadFsrPixel()

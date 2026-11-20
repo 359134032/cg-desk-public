@@ -29,6 +29,7 @@ internal static class FsrSurface
     static readonly object Gate = new();
 
     static IntPtr _host;
+    static GameHost? _inputHost;
     static IntPtr _game;
     static IntPtr _hwnd;
     static WndProc? _proc;
@@ -109,8 +110,9 @@ internal static class FsrSurface
         }
     }
 
-    public static void Sync(IntPtr host, IntPtr game, float sharpness)
+    public static void Sync(GameHost inputHost, IntPtr game, float sharpness)
     {
+        var host = inputHost.HostHandle;
         lock (Gate)
         {
             _sharpness = Math.Clamp(sharpness, 0f, 1f);
@@ -137,6 +139,7 @@ internal static class FsrSurface
                 EnsureDevice();
                 stage = "创建窗口采集";
                 EnsureCapture(game);
+                _inputHost = inputHost;
                 stage = "创建输出画面";
                 var hostSize = ClientSize(host);
                 var size = LaunchResolutions.FitFourByThree(hostSize.Width, hostSize.Height);
@@ -647,6 +650,7 @@ internal static class FsrSurface
         _pool = null;
         _item = null;
         _game = IntPtr.Zero;
+        _inputHost = null;
         _captureStarted = 0;
     }
 
@@ -739,7 +743,7 @@ internal static class FsrSurface
 
         if (msg == MouseActivate)
         {
-            return new IntPtr(3);
+            return new IntPtr(1); // MA_ACTIVATE: bring the desk forward on a real click.
         }
 
         if (msg == EraseBackground)
@@ -761,8 +765,13 @@ internal static class FsrSurface
         }
         if (msg is >= 0x0200 and <= 0x020E && _game != IntPtr.Zero && IsWindow(_game))
         {
-            if (msg is 0x0201 or 0x0204 or 0x0207 or 0x020B)
+            if (msg is 0x0201 or 0x0203 or 0x0204 or 0x0206 or 0x0207 or 0x0209 or 0x020B or 0x020D)
             {
+                var target = _game;
+                var host = _inputHost;
+                if (host == null || host.KeyTarget != target) return IntPtr.Zero;
+                host.FocusInput();
+                if (_game != target || host.KeyTarget != target) return IntPtr.Zero;
                 _ = SetCapture(hwnd);
             }
 

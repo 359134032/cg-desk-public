@@ -82,7 +82,7 @@ public partial class MainWindow
         // DWM needs a composition turn after changing a child into a top-level
         // capture source. CreateForWindow can reject it during that transition.
         if (Environment.TickCount64 < _captureReadyAt) return;
-        FsrSurface.Sync(_mainHost.HostHandle, _primaryHandle, 0.7f);
+        FsrSurface.Sync(_mainHost, _primaryHandle, 0.7f);
         if (FsrSurface.IsPresenting && FsrSurface.RenderedFrames >= 3
             && TryCaptureOrigin(out var sourceX, out var sourceY))
             GameEmbedder.MoveStaged(_primaryHandle, sourceX, sourceY);

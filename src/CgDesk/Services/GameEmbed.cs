@@ -5,8 +5,6 @@ namespace CgDesk.Services;
 
 internal sealed class GameHost : HwndHost
 {
-    private const int ParentNotify = 0x0210;
-    private const int LeftButtonDown = 0x0201;
     private const int WndProcIndex = -4;
 
     private IntPtr _handle;
@@ -37,12 +35,11 @@ internal sealed class GameHost : HwndHost
 
     public void FocusInput()
     {
+        if (_handle == IntPtr.Zero || GetFocus() == _handle) return;
         System.Windows.Input.Keyboard.Focus(this);
         // WPF logical focus alone leaves the native IME attached to the desk window.
-        if (_handle != IntPtr.Zero) _ = SetFocus(_handle);
+        if (_handle != IntPtr.Zero && GetFocus() != _handle) _ = SetFocus(_handle);
     }
-
-    public event Action? Clicked;
 
     protected override bool TranslateAcceleratorCore(ref MSG msg, System.Windows.Input.ModifierKeys modifiers)
     {
@@ -143,11 +140,6 @@ internal sealed class GameHost : HwndHost
             return new IntPtr(1);
         }
 
-        if (msg == ParentNotify && (wParam.ToInt32() & 0xFFFF) == LeftButtonDown)
-        {
-            Clicked?.Invoke();
-        }
-
         if (msg is 0x0100 or 0x0101 or 0x0102 or 0x0104 or 0x0105 or 0x0106
             && !IsImeKey((int)msg, wParam))
         {
@@ -234,6 +226,9 @@ internal sealed class GameHost : HwndHost
 
     [DllImport("user32.dll")]
     private static extern IntPtr SetFocus(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetFocus();
 
     [DllImport("imm32.dll")]
     private static extern bool ImmAssociateContextEx(IntPtr hwnd, IntPtr context, uint flags);
@@ -697,17 +692,6 @@ internal static class GameEmbedder
         }
     }
 
-    public static void NudgeActive(IntPtr game)
-    {
-        if (game == IntPtr.Zero || !NativeMethods.IsWindow(game))
-        {
-            return;
-        }
-
-        _ = PostMessage(game, 0x0006, new IntPtr(1), IntPtr.Zero);
-        _ = PostMessage(game, 0x0007, IntPtr.Zero, IntPtr.Zero);
-    }
-
     private static void KeepInside(IntPtr game, IntPtr host, int x, int y, int width, int height)
     {
         if (!IsAttached(game, host) || !NativeMethods.GetWindowRect(game, out var rect))
@@ -779,9 +763,6 @@ internal static class GameEmbedder
     [DllImport("user32.dll")]
     private static extern bool GetClientRect(IntPtr hwnd, out NativeMethods.RectNative client);
 
-    [DllImport("user32.dll")]
-    private static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
-
     private static IntPtr ParkHost()
     {
         if (_park != IntPtr.Zero && NativeMethods.IsWindow(_park))
@@ -835,61 +816,11 @@ internal static class GameEmbedder
 
     public static void Focus(IntPtr game)
     {
-        if (game == IntPtr.Zero || !NativeMethods.IsWindow(game))
-        {
-            return;
-        }
-
-        var root = GetAncestor(game, 2);
-        var top = root == IntPtr.Zero ? game : root;
-        if (NativeMethods.GetWindowThreadProcessId(top, out _) == NativeMethods.GetCurrentThreadId()
-            && NativeMethods.GetForegroundWindow() != top)
-        {
-            _ = NativeMethods.SetForegroundWindow(top);
-        }
-
-        if (!NativeMethods.Responds(game) || Interlocked.Exchange(ref _focusBusy, 1) == 1)
-        {
-            return;
-        }
-
-        var target = game;
-        ThreadPool.UnsafeQueueUserWorkItem(_ =>
-        {
-            try
-            {
-                FocusGame(target);
-            }
-            finally
-            {
-                Interlocked.Exchange(ref _focusBusy, 0);
-            }
-        }, null);
-    }
-
-    private static int _focusBusy;
-
-    private static void FocusGame(IntPtr game)
-    {
-        if (!NativeMethods.IsWindow(game) || !NativeMethods.Responds(game))
-        {
-            return;
-        }
-
-        var targetThread = NativeMethods.GetWindowThreadProcessId(game, out _);
-        var currentThread = NativeMethods.GetCurrentThreadId();
-        var attached = targetThread != 0 && targetThread != currentThread && NativeMethods.AttachThreadInput(currentThread, targetThread, true);
-        try
-        {
+        // SetParent already joins the input queues. Complete the handoff before
+        // another seat or presentation mode can replace this embedded client.
+        if (GetFocus() != game && Placed.TryGetValue(game, out var place) && IsAttached(game, place.Host)
+            && NativeMethods.Responds(game))
             _ = SetFocus(game);
-        }
-        finally
-        {
-            if (attached)
-            {
-                _ = NativeMethods.AttachThreadInput(currentThread, targetThread, false);
-            }
-        }
     }
 
     [DllImport("user32.dll")]
@@ -936,6 +867,9 @@ internal static class GameEmbedder
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SetParent(IntPtr child, IntPtr parent);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetFocus();
 
     [DllImport("user32.dll")]
     private static extern IntPtr SetFocus(IntPtr hwnd);
@@ -1111,7 +1045,7 @@ internal static class GameCursorCloak
 
         if (msg == MouseActivate)
         {
-            return new IntPtr(3);
+            return new IntPtr(1); // MA_ACTIVATE: the embedded game's top-level window is the desk.
         }
 
         if (msg == 0x001F)
@@ -1128,12 +1062,13 @@ internal static class GameCursorCloak
         }
         if (msg is >= MouseFirst and <= MouseLast && _game != IntPtr.Zero && IsWindow(_game))
         {
-            _ = PostMessage(_game, msg, wParam, lParam);
             if (msg is LeftDown or RightDown or MiddleDown)
             {
+                GameEmbedder.Focus(_game);
                 _ = SetCapture(hwnd);
             }
 
+            _ = PostMessage(_game, msg, wParam, lParam);
             return IntPtr.Zero;
         }
 
